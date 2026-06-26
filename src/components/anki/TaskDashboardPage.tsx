@@ -1057,7 +1057,11 @@ export const TaskDashboardPage: React.FC<TaskDashboardPageProps> = ({
   useMobileHeader('task-dashboard', {
     title: t('taskDashboard.title'),
     subtitle: t('taskDashboard.subtitle'),
+    showBackArrow: true,
     suppressGlobalBackButton: true,
+    onMenuClick: () => {
+      window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tabName: 'chat-v2' } }));
+    },
   }, [t]);
 
   // ======== 渲染 ========
