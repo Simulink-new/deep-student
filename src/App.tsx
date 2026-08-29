@@ -861,6 +861,7 @@ function App() {
   const currentViewRef = useRef<CurrentView>('chat-v2');
   const isSmallScreenRef = useRef(isSmallScreen);
   const [mobileSettingsSheetOpen, setMobileSettingsSheetOpen] = useState(false);
+  const lastEditableFocusAtRef = useRef(0);
   const viewSwitchStartRef = useRef<{ from: CurrentView; to: CurrentView; startTime: number } | null>(null);
   
   // 🚀 性能优化：追踪已访问的页面，只渲染访问过的页面
@@ -875,6 +876,25 @@ function App() {
       setMobileSettingsSheetOpen(false);
     }
   }, [isSmallScreen]);
+
+  useEffect(() => {
+    if (!mobileSettingsSheetOpen) return;
+    const markEditableFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
+        lastEditableFocusAtRef.current = Date.now();
+      }
+    };
+    document.addEventListener('focusin', markEditableFocus, true);
+    document.addEventListener('focusout', markEditableFocus, true);
+    return () => {
+      document.removeEventListener('focusin', markEditableFocus, true);
+      document.removeEventListener('focusout', markEditableFocus, true);
+    };
+  }, [mobileSettingsSheetOpen]);
 
   // 包装 setCurrentView，添加视图切换追踪 + LRU 淘汰
   const setCurrentView = useCallback((newView: CurrentView | ((prev: CurrentView) => CurrentView)) => {
@@ -2610,6 +2630,23 @@ function App() {
               overlayClassName="bg-[color:var(--mobile-sheet-scrim)]"
               hideCloseButton
               className="flex h-[min(86dvh,calc(100dvh-0.5rem))] max-h-[calc(100dvh-0.5rem)] flex-col overflow-hidden rounded-b-none rounded-t-[24px] border-x-0 border-b-0 border-t border-[color:var(--mobile-sheet-border)] bg-[color:var(--mobile-sheet-surface)] p-0 text-[color:var(--mobile-sheet-foreground)] shadow-[var(--mobile-sheet-shadow)] duration-200 ease-out"
+              onPointerDownOutside={(event) => {
+                // 安卓长按粘贴/系统辅助面板会在 Sheet 外产生 pointerdown，
+                // Radix 默认当成“点遮罩关闭”。输入刚失焦的短窗口内拦住，避免被踢回主界面。
+                if (Date.now() - lastEditableFocusAtRef.current < 1200) {
+                  event.preventDefault();
+                }
+              }}
+              onInteractOutside={(event) => {
+                if (Date.now() - lastEditableFocusAtRef.current < 1200) {
+                  event.preventDefault();
+                }
+              }}
+              onFocusOutside={(event) => {
+                if (Date.now() - lastEditableFocusAtRef.current < 1200) {
+                  event.preventDefault();
+                }
+              }}
             >
               <div className="flex h-7 shrink-0 items-center justify-center">
                 <div className="h-1 w-12 rounded-full bg-[color:var(--mobile-sheet-handle)]" />

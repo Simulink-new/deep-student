@@ -19,24 +19,54 @@ export function useMediaQuery(query: string): boolean {
     if (typeof window === 'undefined') return;
 
     const mediaQuery = window.matchMedia(query);
-    
+    let lastMatches = mediaQuery.matches;
+
     // 初始化时立即更新状态
-    setMatches(mediaQuery.matches);
+    setMatches(lastMatches);
+
+    const applyIfChanged = (nextMatches: boolean) => {
+      if (nextMatches === lastMatches) return;
+      lastMatches = nextMatches;
+      setMatches(nextMatches);
+    };
 
     // 监听变化
     const handleChange = (event: MediaQueryListEvent) => {
-      setMatches(event.matches);
+      applyIfChanged(event.matches);
     };
 
-    // 使用新API或降级到旧API
+    // 安卓键盘/粘贴面板弹出时，部分 WebView 会短暂改写 layout viewport，
+    // 导致 matchMedia('(min-width: 768px)') 误报为桌面。用 visualViewport 宽度
+    // 再校验一次：真正的横屏/桌面切换才会跨过断点。
+    const handleViewportChange = () => {
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+      const minWidthMatch = query.match(/\(min-width:\s*(\d+(?:\.\d+)?)px\)/i);
+      const maxWidthMatch = query.match(/\(max-width:\s*(\d+(?:\.\d+)?)px\)/i);
+      if (!minWidthMatch && !maxWidthMatch) {
+        applyIfChanged(window.matchMedia(query).matches);
+        return;
+      }
+      let next = true;
+      if (minWidthMatch) next = next && viewportWidth >= Number(minWidthMatch[1]);
+      if (maxWidthMatch) next = next && viewportWidth <= Number(maxWidthMatch[1]);
+      applyIfChanged(next);
+    };
+
     if (mediaQuery.addEventListener) {
       mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
     } else {
-      // 兼容旧版浏览器
       mediaQuery.addListener(handleChange);
-      return () => mediaQuery.removeListener(handleChange);
     }
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+
+    return () => {
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleChange);
+      } else {
+        mediaQuery.removeListener(handleChange);
+      }
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+    };
   }, [query]);
 
   return matches;

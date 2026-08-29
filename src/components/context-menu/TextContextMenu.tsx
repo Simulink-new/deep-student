@@ -22,6 +22,7 @@ import { Copy, Scissors, ClipboardText, ListChecks } from '@phosphor-icons/react
 import { cn } from '@/lib/utils';
 import { useOverlayCoordinator } from '@/components/shared/OverlayCoordinator';
 import { copyTextToClipboard, readTextFromClipboard } from '@/utils/clipboardUtils';
+import { isMobilePlatform } from '@/utils/platform';
 
 // ───────────────────────────────────────────────────────────────────
 // Types
@@ -349,6 +350,10 @@ export function TextContextMenuProvider({ children }: { children: React.ReactNod
 
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
+      // 移动端长按必须走系统文本菜单（粘贴/剪贴板权限/输入法面板），
+      // 自定义菜单既拦不住系统粘贴，还会和 Sheet 关闭逻辑打架。
+      if (isMobilePlatform()) return;
+
       // If a descendant already handled it (preventDefault), stay out of the way.
       if (e.defaultPrevented) return;
 
