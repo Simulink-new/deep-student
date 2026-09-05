@@ -48,6 +48,7 @@ pub const SNAPSHOT_FORMAT: &str = "deepstudent-conversation-snapshot";
 pub const SNAPSHOT_VERSION: u32 = 1;
 /// 分块导出默认每页消息数
 pub const EXPORT_PAGE_SIZE: usize = 100;
+pub const MAX_SNAPSHOT_BYTES: usize = 50 * 1024 * 1024;
 
 // ============================================================================
 // 导出
@@ -195,6 +196,13 @@ pub async fn chat_v2_import_session(
     crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
 
     // 1. 解析与校验
+    if snapshot_json.len() > MAX_SNAPSHOT_BYTES {
+        return Err(ChatV2Error::Validation(format!(
+            "Snapshot exceeds maximum size of {} bytes",
+            MAX_SNAPSHOT_BYTES
+        ))
+        .to_string());
+    }
     let snapshot: ConversationSnapshot = serde_json::from_str(&snapshot_json).map_err(|e| {
         ChatV2Error::Validation(format!("Invalid snapshot JSON: {}", e)).to_string()
     })?;
