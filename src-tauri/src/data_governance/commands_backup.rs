@@ -232,6 +232,22 @@ fn should_apply_change_by_strategy(
     }
 }
 
+/// 本地是否存在尚未同步的修改（sync_version = 0 表示从未成功上传）
+fn has_unsynced_local_change(
+    conn: &rusqlite::Connection,
+    table_name: &str,
+    record_id: &str,
+) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) FROM __change_log
+         WHERE table_name = ?1 AND record_id = ?2 AND sync_version = 0",
+        rusqlite::params![table_name, record_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+    .unwrap_or(false)
+}
+
 /// 将下载的变更按数据库路由并应用（接入冲突保护 + 冲突表）
 ///
 /// 根据每条变更的 `database_name` 字段将变更路由到对应的数据库，
@@ -339,20 +355,42 @@ pub(super) fn apply_downloaded_changes_to_databases(
 
         let conn = rusqlite::Connection::open(&db_path)?;
 
-        // 预过滤：先按策略决策（KeepLocal 直接跳过云端变更）
+        // Manual 模式沿用旧的预过滤路径；KeepLatest/UseCloud 必须先进入冲突保护。
+        //
+        // 真实多设备场景里，同一记录如果本地有未同步修改且云端也有不同修改，
+        // 即使 KeepLatest 最终会保留本地，也必须把双方快照写入 __sync_conflicts。
+        // 若在这里先按时间戳过滤，本地较新的变更会直接跳过云端变更，导致冲突
+        // 保护没有机会落表，表现为静默覆盖/静默丢失。
+        //
+        // KeepLocal 仍保留原语义：本地已有且没有本地待同步冲突时跳过云端；只有
+        // 本地存在待同步修改时才进入冲突保护以落表。
         let mut owned_changes: Vec<SyncChangeWithData> = Vec::new();
-        for c in db_changes {
-            let id_column = id_column_map
-                .get(&c.table_name)
-                .map(|s| s.as_str())
-                .unwrap_or("id");
-            let should_apply = should_apply_change_by_strategy(&conn, c, id_column, strategy)?;
-            if should_apply {
+        if policy_opt.is_none() || strategy == MergeStrategy::KeepLocal {
+            for c in db_changes {
+                let id_column = id_column_map
+                    .get(&c.table_name)
+                    .map(|s| s.as_str())
+                    .unwrap_or("id");
+                let should_apply = if strategy == MergeStrategy::KeepLocal
+                    && has_unsynced_local_change(&conn, &c.table_name, &c.record_id)
+                {
+                    true
+                } else {
+                    should_apply_change_by_strategy(&conn, c, id_column, strategy)?
+                };
+                if should_apply {
+                    let mut cloned = (*c).clone();
+                    cloned.suppress_change_log = Some(true);
+                    owned_changes.push(cloned);
+                } else {
+                    agg.total_skipped += 1;
+                }
+            }
+        } else {
+            for c in db_changes {
                 let mut cloned = (*c).clone();
                 cloned.suppress_change_log = Some(true);
                 owned_changes.push(cloned);
-            } else {
-                agg.total_skipped += 1;
             }
         }
 
