@@ -2996,7 +2996,19 @@ impl MigrationCoordinator {
             .get(current_version as i32)
             .map(|m| m.idempotent)
             .unwrap_or(false);
-        self.verify_schema_fingerprint(conn, id, current_version, allow_rebaseline)?;
+        // 数据库历史版本比本二进制还新（降级/回退场景）：指纹必然对不上，
+        // fail-close 会误伤，跳过指纹校验仅告警
+        let latest_supported_version = migration_set.latest_version();
+        if i64::from(current_version) > i64::from(latest_supported_version) {
+            tracing::warn!(
+                database = id.as_str(),
+                history_version = current_version,
+                latest_supported_version,
+                "Skipping schema fingerprint because database history is newer than this binary"
+            );
+        } else {
+            self.verify_schema_fingerprint(conn, id, current_version, allow_rebaseline)?;
+        }
 
         tracing::debug!(
             database = migration_set.database_name,
