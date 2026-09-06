@@ -646,7 +646,8 @@ const ThinkingNodeContent: React.FC<ThinkingNodeContentProps> = ({ node, isFirst
             className={cn('overflow-hidden', shouldStickSummary && 'pt-3')}
           >
             <div
-              className="py-1.5 pl-2 pr-1 text-gray-500 dark:text-gray-400 text-xs leading-snug"
+              className="py-1.5 pl-2 pr-1 text-gray-500 dark:text-gray-400 text-xs leading-snug overflow-y-auto"
+              style={{ maxHeight: 'min(60vh, 320px)' }}
             >
               <div className="space-y-1.5">
                 {paragraphs.map((paragraph, idx, arr) => (
