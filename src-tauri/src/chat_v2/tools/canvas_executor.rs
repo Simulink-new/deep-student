@@ -376,6 +376,7 @@ impl CanvasToolExecutor {
             let items: Vec<_> = results
                 .into_iter()
                 .map(|(id, title, snippet)| {
+                    let snippet = snippet.unwrap_or_default();
                     json!({
                         "id": id,
                         "title": title,
