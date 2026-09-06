@@ -46,6 +46,13 @@ fn reqwest_error_detail(e: &reqwest::Error) -> String {
     msg
 }
 
+/// 同一 provider（host|username）的限流滑窗，在所有 storage 实例间共享：
+/// 多个同步任务/会话各自创建 WebDavStorage 实例时，仍共同受坚果云请求上限约束。
+type RateWindow = Arc<std::sync::Mutex<std::collections::VecDeque<std::time::Instant>>>;
+static PROVIDER_RATE_WINDOWS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, RateWindow>>,
+> = std::sync::OnceLock::new();
+
 /// WebDAV 存储实现
 pub struct WebDavStorage {
     base_url: Url,
@@ -59,8 +66,9 @@ pub struct WebDavStorage {
     ensured_dirs: std::sync::Mutex<std::collections::HashSet<String>>,
     /// 频率限制预算（每 30 分钟请求数；0 = 不限速，见 `resolve_rate_limit`）
     rate_limit_per_30min: u32,
-    /// 最近 30 分钟已发请求的时间戳（滑窗节流，见 `acquire_request_slot`）
-    rate_window: std::sync::Mutex<std::collections::VecDeque<std::time::Instant>>,
+    /// 最近 30 分钟已发请求的时间戳（滑窗节流，见 `acquire_request_slot`）。
+    /// 按 provider 跨实例共享（见 `PROVIDER_RATE_WINDOWS`）。
+    rate_window: RateWindow,
 }
 
 impl WebDavStorage {
@@ -94,6 +102,24 @@ impl WebDavStorage {
 
         let rate_limit_per_30min = Self::resolve_rate_limit(url.host_str().unwrap_or_default());
 
+        // 共享同一 provider 的限流窗口：多个同步任务/会话创建不同 storage
+        // 实例时仍共同受坚果云请求上限约束。
+        let provider_key = format!(
+            "{}|{}",
+            url.host_str().unwrap_or_default().to_lowercase(),
+            config.username
+        );
+        let windows = PROVIDER_RATE_WINDOWS
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+        let rate_window = {
+            let mut all = windows.lock().unwrap_or_else(|p| p.into_inner());
+            all.entry(provider_key)
+                .or_insert_with(|| {
+                    Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()))
+                })
+                .clone()
+        };
+
         Ok(Self {
             base_url: url,
             username: config.username,
@@ -102,7 +128,7 @@ impl WebDavStorage {
             http,
             ensured_dirs: std::sync::Mutex::new(std::collections::HashSet::new()),
             rate_limit_per_30min,
-            rate_window: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            rate_window,
         })
     }
 
