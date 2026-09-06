@@ -37,7 +37,10 @@ interface ApprovalResultPayload {
   reason?: string | null;
 }
 
-const APPROVAL_RESOLUTION_DISPLAY_MS = 1000;
+// 产品决策（2026-09）：点击后审批栏立即出队消失，不再保留固定的已决态展示窗口。
+// 保留 0ms 定时器而非同步出队：runtime 重置清理（registerTransientRuntime）与
+// toolCallId 守卫依赖这个可取消的异步边界来防竞态。
+const APPROVAL_RESOLUTION_DISPLAY_MS = 0;
 
 // 简单队列：避免并发审批请求互相覆盖
 const approvalQueue: ApprovalRequestPayload[] = [];
