@@ -116,6 +116,9 @@ export function VoiceInputControl({
       className={cn(
         'inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-[12px] font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]',
+        // 触屏直接给 44px 物理最小高（px 固定，不受 rem 锚点 14px 缩水影响），
+        // 与输入栏其余工具按钮（发送/添加均为 44px）对齐
+        '[@media(pointer:coarse)]:min-h-[44px]',
         isRecording
           ? 'border-red-500/30 bg-red-500/10 text-red-600'
           : 'border-[color:var(--button-plain-border)] bg-[var(--button-plain-bg)] text-[color:var(--button-utility-foreground)] hover:bg-[var(--button-plain-hover-bg)] hover:text-[color:var(--text-primary)]',
