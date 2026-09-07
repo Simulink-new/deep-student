@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/errorUtils';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { getReadableToolName } from '@/features/chat/utils/toolDisplayName';
+import { sessionManager } from '../../core/session/sessionManager';
+import { resolveApprovalLocally } from '../../plugins/events/approval';
 import type { BlockingInteraction } from '../../core/types/store';
 import type { PlaygroundToolApprovalInteraction } from '../../dev/playground/blockingRuntime';
 
@@ -115,6 +117,14 @@ export const BlockingApprovalBar: React.FC<BlockingApprovalBarProps> = React.mem
             t('approval.notification.expiredTitle'),
             t('approval.notification.expiredDetail')
           );
+          // 后端已权威告知该审批的等待者不存在（超时/取消/管线消亡）。
+          // 审批终止事件是无 messageId 的虚拟块事件，流结束后投递不可靠
+          // ——不能只等事件投递，这里直接本地收摊（resolve 为 expired 并
+          // 推进队列），否则审批栏永久占位、每点一次弹一次通知。
+          const storeApi = sessionManager.get(sessionId);
+          if (storeApi) {
+            resolveApprovalLocally(storeApi.getState(), interaction.toolCallId, 'expired');
+          }
         } else {
           showGlobalNotification(
             'error',

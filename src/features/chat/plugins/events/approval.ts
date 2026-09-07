@@ -11,6 +11,7 @@
 import type { EventHandler } from '../../registry/eventRegistry';
 import { eventRegistry } from '../../registry/eventRegistry';
 import type { ChatStore } from '../../core/types';
+import { registerTransientRuntime } from '../../core/store/transientRuntimeRegistry';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import i18n from 'i18next';
 // 🆕 2026-02-17: 工具调用生命周期追踪
@@ -31,6 +32,8 @@ interface ApprovalRequestPayload {
 
 type ApprovalResolutionStatus = 'approved' | 'rejected' | 'timeout' | 'expired' | 'error';
 
+export type { ApprovalResolutionStatus };
+
 interface ApprovalResultPayload {
   toolCallId?: string;
   approved?: boolean;
@@ -45,6 +48,10 @@ const APPROVAL_RESOLUTION_DISPLAY_MS = 0;
 // 简单队列：避免并发审批请求互相覆盖
 const approvalQueue: ApprovalRequestPayload[] = [];
 let resolutionTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 已终结的 toolCallId 记账：防止迟到的重复 start 事件复活已终结的审批
+//（toolCallId 每次调用唯一，集合只增不查重泄漏可忽略；流终止时随运行时重置清空）
+const terminalToolCallIds = new Set<string>();
 
 function toStoreApproval(request: ApprovalRequestPayload) {
   return {
@@ -136,6 +143,35 @@ function notifyApprovalError(kind: 'timeout' | 'expired' | 'error') {
   );
 }
 
+/**
+ * 本地收摊：不等待事件桥投递终止事件，直接 resolve 当前审批并推进队列。
+ *
+ * 审批的终止事件是虚拟块事件（BackendEvent::error/end 不携带 messageId），
+ * 流结束后事件桥上下文已重建，终止事件投递不可靠——所以不能只吃事件投递
+ * 这一条路。典型调用方：
+ * - BlockingApprovalBar：respond 命令返回 approval_expired（后端已权威告知
+ *   等待者不存在），立即本地收摊，避免审批栏永久占位、反复弹"审批已失效"。
+ *
+ * 不弹通知（调用方已给反馈）；幂等：pending 不存在或已决时只记账不动作。
+ */
+export function resolveApprovalLocally(
+  store: ChatStore,
+  toolCallId: string,
+  status: ApprovalResolutionStatus,
+  reason?: string,
+): void {
+  if (toolCallId) {
+    terminalToolCallIds.add(toolCallId);
+    const queuedIndex = approvalQueue.findIndex((r) => r.toolCallId === toolCallId);
+    if (queuedIndex >= 0) {
+      approvalQueue.splice(queuedIndex, 1);
+    }
+  }
+  if (!shouldResolveApproval(store, toolCallId)) return;
+  resolvePendingApproval(store, status, reason);
+  scheduleAdvanceQueue(store);
+}
+
 // ============================================================================
 // 事件处理器
 // ============================================================================
@@ -167,6 +203,12 @@ export const approvalEventHandler: EventHandler = {
       detail: { sensitivity: request.sensitivity, timeoutSeconds: request.timeoutSeconds },
     });
     if (request.toolCallId) trackStart(request.toolCallId, undefined, `approval:${request.toolName}`);
+
+    // 已终结的审批不允许复活（迟到的重复 start 事件）
+    if (request.toolCallId && terminalToolCallIds.has(request.toolCallId)) {
+      console.log('[ApprovalEventHandler] Ignoring start for terminal approval:', request.toolCallId);
+      return `approval_${request.toolCallId}`;
+    }
 
     const normalized = toStoreApproval(request);
 
@@ -238,6 +280,15 @@ export const approvalEventHandler: EventHandler = {
 
 // 注册到 eventRegistry（导入即注册）
 eventRegistry.register('tool_approval_request', approvalEventHandler);
+
+// 注册瞬态运行时重置：流终止路径（abortStream/completeStream）经
+// transientRuntimeRegistry 调用，清空等待队列与终态记账——队列里的审批
+// 同属于那条死流，后端不会再有人等待。
+//（core/store 不能直接 import 本模块，会经 UnifiedNotification 形成循环依赖）
+registerTransientRuntime(() => {
+  approvalQueue.length = 0;
+  terminalToolCallIds.clear();
+});
 
 // 导出 handler 供测试使用
 export { approvalEventHandler as toolApprovalEventHandler };
