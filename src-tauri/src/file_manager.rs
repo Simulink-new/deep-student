@@ -858,6 +858,12 @@ impl FileManager {
         Ok(metadata.len())
     }
 
+    /// 相对路径统一为正斜杠——Windows 上 strip_prefix 产出反斜杠路径，
+    /// 前端 `notes_assets/` 前缀匹配会失败导致粘贴图片无法回显
+    fn portable_relative_path(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
     /// 保存笔记资源（图片等）：返回(绝对路径, 相对路径)
     pub fn save_note_asset_from_base64(
         &self,
@@ -903,9 +909,8 @@ impl FileManager {
         let abs_str = abs.to_string_lossy().to_string();
         let rel_str = abs
             .strip_prefix(&writable_dir)
-            .unwrap_or(&abs)
-            .to_string_lossy()
-            .to_string();
+            .map(Self::portable_relative_path)
+            .unwrap_or_else(|_| Self::portable_relative_path(&abs));
         Ok((abs_str, rel_str))
     }
 
