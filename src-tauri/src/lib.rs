@@ -80,6 +80,7 @@ pub mod services;
 pub mod session_manager;
 pub mod spaced_repetition;
 pub mod startup_cleanup;
+pub mod startup_gate; // 启动完成闸门（setup 就绪信号，修复 Android IPC/setup 并发假绿灯）
 pub mod streaming_anki_service;
 pub mod test_utils;
 pub mod textbooks_db;
@@ -280,6 +281,11 @@ pub fn run() {
         )
         //.manage(init_app_state())
         .setup(|app| {
+            // 启动完成闸门守卫（startup_gate）：闭包任意路径退出（含恢复模式
+            // 提前返回）时自动标记就绪，放行正在等待的启动预检命令。
+            // 必须置于闭包首行，保证所有退出路径都被覆盖。
+            let _startup_ready_guard = crate::startup_gate::StartupReadyGuard::new();
+
             let app_handle = app.handle().clone();
 
             // 设置全局 AppHandle，用于在任意位置发送事件

@@ -398,10 +398,23 @@ pub(super) fn try_save_audit_log(app: &tauri::AppHandle, log: AuditLog) {
 ///
 /// 前端应用启动时调用此命令，将后端维护模式状态同步到前端 store。
 /// 用于处理应用在维护模式中崩溃后重启的场景。
+///
+/// 启动完成闸门（startup_gate，🆕 2026-09 移植自上游 4ccd2c121）：本命令经
+/// `try_state` 读取状态，若在 setup 完成前执行会返回"假绿灯"（AppState 未注册
+/// =不在维护模式），导致前端在后端初始化完成前就启动整个 App（Android 上 IPC
+/// 在 JavaBridge 后台线程与 setup 并发，该竞态真实存在）。因此先有界等待
+/// setup 完成再评估。
 #[tauri::command]
-pub fn data_governance_get_maintenance_status(
+pub async fn data_governance_get_maintenance_status(
     app: AppHandle,
 ) -> DataGovernanceResult<MaintenanceStatusResponse> {
+    if !crate::startup_gate::wait_startup_ready(crate::startup_gate::STARTUP_READY_WAIT).await {
+        return Err(format!(
+            "应用启动初始化超时（{} 秒），请重启应用",
+            crate::startup_gate::STARTUP_READY_WAIT.as_secs()
+        )
+        .into());
+    }
     let in_maintenance = if let Some(state) = app.try_state::<crate::commands::AppState>() {
         state.database.is_in_maintenance_mode()
     } else {
