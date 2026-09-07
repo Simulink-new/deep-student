@@ -54,6 +54,14 @@ pub const MAX_TAIL_TOKENS: usize = 64_000;
 /// 必须保留的"开头"user turn 数量（任务锚点）
 pub const HEAD_USER_TURNS: usize = 2;
 
+/// 🆕 2026-09 防抖动冷却（移植自上游 4952286d6 的简化版）：
+/// LLM 摘要失败后的冷却时长——摘要链路故障通常不会秒级恢复，
+/// 冷却避免「每条消息触发 → 昂贵准备 → 失败」循环空转。
+const COMPACTION_COOLDOWN_FAILURE_SECS: u64 = 120;
+/// 无可压缩区间时的冷却时长——区间形状在下一条用户消息前通常不变，
+/// 重复准备（加载全量消息+块）是浪费。
+const COMPACTION_COOLDOWN_NO_RANGE_SECS: u64 = 60;
+
 // ============================================================================
 // 核心判定
 // ============================================================================
@@ -562,6 +570,15 @@ impl ChatV2Pipeline {
         Ok(())
     }
 
+    /// 🆕 2026-09：记录 compaction 冷却（防抖动）。
+    fn set_compaction_cooldown(&self, session_id: &str, duration: std::time::Duration) {
+        let mut cooldowns = self
+            .compaction_cooldowns
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        cooldowns.insert(session_id.to_string(), std::time::Instant::now() + duration);
+    }
+
     /// 🆕 R2-CR-R2-02 修复：context-agnostic 的 compaction 入口。
     ///
     /// 用于单变体（通过 `run_compaction`）和多变体（通过 `execute_multi_variant`
@@ -587,6 +604,24 @@ impl ChatV2Pipeline {
         model_id: Option<&str>,
         exclude_ids: &[String],
     ) -> ChatV2Result<bool> {
+        // 🆕 2026-09 防抖动冷却：失败/无可压缩区间后的冷却期内直接跳过
+        // （fork 无手动压缩入口，所有触发均为自动触发，统一受冷却约束）。
+        {
+            let cooldowns = self
+                .compaction_cooldowns
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(until) = cooldowns.get(session_id) {
+                if std::time::Instant::now() < *until {
+                    info!(
+                        "[compaction] session={} in cooldown; skip this trigger",
+                        session_id
+                    );
+                    return Ok(false);
+                }
+            }
+        }
+
         // --- 互斥锁：同一 session 同时只跑一个 compaction ---
         let lock_acquired = {
             let mut locks = self
@@ -676,6 +711,10 @@ impl ChatV2Pipeline {
             Some(t) => t,
             None => {
                 info!("[compaction] no suitable tail cut; skip");
+                self.set_compaction_cooldown(
+                    session_id,
+                    std::time::Duration::from_secs(COMPACTION_COOLDOWN_NO_RANGE_SECS),
+                );
                 return Ok(false);
             }
         };
@@ -719,6 +758,10 @@ impl ChatV2Pipeline {
         let middle_end = tail.tail_start_idx;
         if middle_start >= middle_end {
             info!("[compaction] nothing in middle to summarize; skip");
+            self.set_compaction_cooldown(
+                session_id,
+                std::time::Duration::from_secs(COMPACTION_COOLDOWN_NO_RANGE_SECS),
+            );
             return Ok(false);
         }
 
@@ -763,6 +806,10 @@ impl ChatV2Pipeline {
                 let trimmed = out.assistant_message.trim().to_string();
                 if trimmed.is_empty() {
                     warn!("[compaction] LLM returned empty summary; skip");
+                    self.set_compaction_cooldown(
+                        session_id,
+                        std::time::Duration::from_secs(COMPACTION_COOLDOWN_FAILURE_SECS),
+                    );
                     return Ok(false);
                 }
                 // 🔧 P1-W3 修复：硬性 cap，防止 runaway 摘要反而超过 tail 预算。
@@ -788,6 +835,10 @@ impl ChatV2Pipeline {
                 warn!(
                     "[compaction] LLM call failed: {}; fallback to FIFO truncation",
                     e
+                );
+                self.set_compaction_cooldown(
+                    session_id,
+                    std::time::Duration::from_secs(COMPACTION_COOLDOWN_FAILURE_SECS),
                 );
                 return Ok(false);
             }
@@ -865,6 +916,12 @@ impl ChatV2Pipeline {
             "[compaction] committed: id={} tail_start_msg={} summary_tokens={} tokens_after={:?}",
             record.id, tail_start_msg.id, summary_tokens, tokens_after
         );
+
+        // 成功：清除既有冷却
+        self.compaction_cooldowns
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(session_id);
 
         Ok(true)
     }

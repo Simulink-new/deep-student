@@ -79,10 +79,10 @@ pub fn estimate_tokens_with_model(text: &str, model_hint: Option<&str>) -> usize
         }
         if let Some(m) = model_hint {
             let enc = pick_encoding(m);
-            return enc.encode_with_special_tokens(text).len();
+            return encode_capped(&enc, text);
         } else {
             let enc = cl100k_base().unwrap();
-            return enc.encode_with_special_tokens(text).len();
+            return encode_capped(&enc, text);
         }
     }
     #[cfg(not(feature = "tokenizer_tiktoken"))]
@@ -97,6 +97,44 @@ pub fn estimate_tokens_with_model(text: &str, model_hint: Option<&str>) -> usize
 
         estimate_tokens(text)
     }
+}
+
+/// 🆕 2026-09：超长文本的采样外推阈值（字符数）。超过后按首/中/尾采样线性外推。
+/// tiktoken BPE 合并是近似平方级复杂度：病态内容（单字符重复、minified、
+/// 重复日志）几千字符就要数秒（实测 15K 重复字符 ≈5.7s，75K >60s），
+/// 会把压缩/预算流水线整体卡死。采样把单次估算压到亚秒级。
+#[cfg(feature = "tokenizer_tiktoken")]
+const TIKTOKEN_SAMPLE_THRESHOLD_CHARS: usize = 8_000;
+/// 首/中/尾各采样的字符数（2K 重复字符的 BPE 耗时约 0.1s，可接受）
+#[cfg(feature = "tokenizer_tiktoken")]
+const TIKTOKEN_SAMPLE_PART_CHARS: usize = 2_000;
+
+#[cfg(feature = "tokenizer_tiktoken")]
+fn encode_capped(enc: &tiktoken_rs::CoreBPE, text: &str) -> usize {
+    let total_chars = text.chars().count();
+    if total_chars <= TIKTOKEN_SAMPLE_THRESHOLD_CHARS {
+        return enc.encode_with_special_tokens(text).len();
+    }
+    // 首/中/尾采样 + 按密度线性外推（超长文本的精度损失可接受——它们通常远超预算）
+    let head: String = text.chars().take(TIKTOKEN_SAMPLE_PART_CHARS).collect();
+    let mid_start = (total_chars - TIKTOKEN_SAMPLE_PART_CHARS) / 2;
+    let mid: String = text
+        .chars()
+        .skip(mid_start)
+        .take(TIKTOKEN_SAMPLE_PART_CHARS)
+        .collect();
+    let tail: String = text
+        .chars()
+        .skip(total_chars - TIKTOKEN_SAMPLE_PART_CHARS)
+        .collect();
+    let sampled_tokens = enc.encode_with_special_tokens(&head).len()
+        + enc.encode_with_special_tokens(&mid).len()
+        + enc.encode_with_special_tokens(&tail).len();
+    let sampled_chars = TIKTOKEN_SAMPLE_PART_CHARS * 3;
+    // 按采样密度外推，并保证不低于采样值（防低估导致预算失控）
+    let extrapolated =
+        (sampled_tokens as f64 * (total_chars as f64 / sampled_chars as f64)).round() as usize;
+    extrapolated.max(sampled_tokens)
 }
 
 fn is_cjk(cp: u32) -> bool {

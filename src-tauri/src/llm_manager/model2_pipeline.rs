@@ -3877,7 +3877,10 @@ impl LLMManager {
 
         let mut request_builder = self.client
             .post(&preq.url)
-            .header("Accept", "text/event-stream, application/json, text/plain, */*")
+            // 🆕 2026-09 修复：非流式请求必须只声明 Accept: application/json。
+            // 带 text/event-stream 会让某些网关按 Accept（而非 stream 字段）判定流式，
+            // 返回 SSE 分块流导致 response.json() 解析失败（间歇性"200+解析失败"）。
+            .header("Accept", "application/json")
             .header("Accept-Encoding", "identity")  // 禁用压缩，避免二进制响应
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
@@ -4395,7 +4398,10 @@ impl LLMManager {
 
             let mut request_builder = self.client
                 .post(&preq.url)
-                .header("Accept", "text/event-stream, application/json, text/plain, */*")
+                // 🆕 2026-09 修复：非流式请求必须只声明 Accept: application/json。
+                // 带 text/event-stream 会让某些网关按 Accept（而非 stream 字段）判定流式，
+                // 返回 SSE 分块流导致解析失败。
+                .header("Accept", "application/json")
                 .header("Accept-Encoding", "identity")  // 禁用压缩，避免二进制响应
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
@@ -4731,7 +4737,11 @@ impl LLMManager {
 
         let mut request_builder = self.client
             .post(&preq.url)
-            .header("Accept", "text/event-stream, application/json, text/plain, */*")
+            // 🆕 2026-09 修复：非流式请求必须只声明 Accept: application/json。
+            // 带 text/event-stream 会让某些网关按 Accept（而非 stream 字段）判定流式，
+            // 返回 SSE 分块流，response.json() 解析失败（"expected value at line 1
+            // column 1"），表现为间歇性"200+解析失败"。
+            .header("Accept", "application/json")
             .header("Accept-Encoding", "identity")
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
