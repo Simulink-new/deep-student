@@ -2069,10 +2069,14 @@ export const InputBarUI: React.FC<InputBarUIProps> = ({
     <div
       ref={dropZoneRef}
       data-testid="input-bar-v2-root"
+      data-drop-claim={isReady ? 'local' : undefined}
       className={cn(
         // 🎨 布局分离：作为 flex 子项，relative 用于面板定位
         // 🔧 P0修复：移除 ring 样式，避免拖拽时显示难看的实心边框
-        'relative isolate z-[100] w-full flex-shrink-0 px-4 pt-2.5 transition-all duration-500 ease-out unified-input-docked md:px-8 md:pb-4',
+        // 性能：勿用 transition-all——大容器上 transition-all 会让每次样式失效都
+        // 检查全部属性（CDP trace 实锤拖拽期间每帧一次 Animation 失效），点名
+        // 实际会变的 padding/background 即可。
+        'relative isolate z-[100] w-full flex-shrink-0 px-4 pt-2.5 transition-[padding,background-color] duration-500 ease-out unified-input-docked md:px-8 md:pb-4',
         className
       )}
       style={{

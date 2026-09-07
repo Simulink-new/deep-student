@@ -92,7 +92,15 @@ export const SettingsGroup = ({
   children: React.ReactNode;
   className?: string;
 }) => (
-  <section className={cn('rounded-2xl border border-border/40 bg-background px-3 py-3 sm:px-4', className)}>
+  <section
+    className={cn(
+      // content-visibility:auto：离屏分组跳过布局/绘制与 AX bounds 序列化，
+      // 降低长设置页滚动/样式失效成本（contain-intrinsic-size 保持滚动条稳定）。
+      'rounded-2xl border border-border/40 bg-background px-3 py-3 sm:px-4',
+      '[content-visibility:auto] [contain-intrinsic-size:auto_360px]',
+      className,
+    )}
+  >
     <GroupTitle title={title} />
     {description ? (
       <p className="px-1 pb-3 text-xs leading-5 text-muted-foreground/80">
