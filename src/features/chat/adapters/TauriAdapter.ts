@@ -176,6 +176,14 @@ export class ChatV2TauriAdapter {
   private streamExpectation: { messageId: string; startedAt: number } | null = null;
   /** ChatAnki 桥接 chunk 日志节流计数器（按 blockId） */
   private chatAnkiChunkLogCounter = new Map<string, number>();
+  /** 🚀 制卡性能修复（2026-09-05）：NewCard 事件合并缓冲（按 blockId）。
+   *  原实现每张卡一次 O(N) 签名计算 + updateBlock，N 张卡产生 O(N²) 渲染；
+   *  现在 100ms 窗口内的卡片合并为一次状态写入。 */
+  private ankiCardFlushQueue = new Map<string, {
+    cards: AnkiCard[];
+    documentId?: string;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>();
 
   constructor(sessionId: string, store: ChatStore, storeApi?: StoreApi<ChatStore>) {
     this.adapterInstanceId = ChatV2TauriAdapter.nextAdapterInstanceId++;
@@ -758,6 +766,20 @@ export class ChatV2TauriAdapter {
       console.error(LOG_PREFIX, 'Error flushing chunkBuffer:', getErrorMessage(error));
     }
 
+    // 🚀 制卡合并缓冲（2026-09-05）：cleanup 前冲刷而非丢弃缓冲卡片，
+    // 避免会话切换瞬间丢失 ≤100ms 窗口内已到达的卡片
+    try {
+      for (const blockId of [...this.ankiCardFlushQueue.keys()]) {
+        this.flushAnkiCardBuffer(blockId);
+      }
+    } catch (error) {
+      console.error(LOG_PREFIX, 'Error flushing ankiCardFlushQueue on cleanup:', getErrorMessage(error));
+      for (const queued of this.ankiCardFlushQueue.values()) {
+        if (queued.timer) clearTimeout(queued.timer);
+      }
+      this.ankiCardFlushQueue.clear();
+    }
+
     // 🔧 P3修复：清理自动保存相关的所有状态
     // 不仅取消待执行保存，还清理 lastSaveTime 和 savingPromise
     try {
@@ -913,6 +935,151 @@ export class ChatV2TauriAdapter {
   // 事件处理
   // ========================================================================
 
+  /** 从卡片字段中提取问题文本（用于签名/调试快照） */
+  private extractAnkiCardQuestion(card: AnkiCard): string {
+    const fields = (card.fields ?? {}) as Record<string, unknown>;
+    const extraFields = (card.extra_fields ?? {}) as Record<string, unknown>;
+    const fieldQuestion =
+      fields.question ??
+      fields.Question ??
+      extraFields.question ??
+      extraFields.Question;
+    if (typeof fieldQuestion === 'string' && fieldQuestion.trim()) return fieldQuestion.trim();
+    const front = card.front ?? '';
+    if (front.trim().startsWith('{') && front.trim().endsWith('}')) {
+      try {
+        const parsed = JSON.parse(front) as Record<string, unknown>;
+        const q = parsed.Question ?? parsed.question ?? parsed.front;
+        if (typeof q === 'string' && q.trim()) return q.trim();
+      } catch {
+        // ignore
+      }
+    }
+    return front.replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  /** 构建卡片列表签名（O(N)——仅在冲刷/终态时调用，不再每卡一次） */
+  private buildAnkiCardsSignature(cards: AnkiCard[]): string {
+    return cards
+      .map((card) => `${card.id ?? 'no-id'}::${card.template_id ?? 'no-template'}::${this.extractAnkiCardQuestion(card)}`)
+      .join('|');
+  }
+
+  /** 记录卡片来源快照（调试面板用） */
+  private recordAnkiSourceSnapshot(
+    targetBlock: { id: string },
+    source: string,
+    cards: AnkiCard[],
+    status: string | undefined,
+    docId: string | undefined,
+  ): void {
+    const signature = this.buildAnkiCardsSignature(cards);
+    const updatedAt = new Date().toISOString();
+    const cardIds = cards.map((card) => card.id ?? 'no-id');
+
+    const win = window as Window & {
+      __chatankiCardSourceByBlock?: Record<
+        string,
+        {
+          source: string;
+          blockStatus?: string;
+          documentId?: string;
+          cardIds: string[];
+          signature: string;
+          updatedAt: string;
+        }
+      >;
+    };
+    if (!win.__chatankiCardSourceByBlock) {
+      win.__chatankiCardSourceByBlock = {};
+    }
+    win.__chatankiCardSourceByBlock[targetBlock.id] = {
+      source,
+      blockStatus: status,
+      documentId: docId,
+      cardIds,
+      signature,
+      updatedAt,
+    };
+
+    try {
+      window.dispatchEvent(new CustomEvent('chatanki-debug-lifecycle', { detail: {
+        level: 'info',
+        phase: 'bridge:source',
+        summary: `source snapshot ${source} block=${targetBlock.id.slice(0, 8)} cards=${cards.length} doc=${docId ?? 'null'}`,
+        detail: {
+          blockId: targetBlock.id,
+          source,
+          blockStatus: status ?? null,
+          documentId: docId ?? null,
+          cardsCount: cards.length,
+          cardIds,
+          signature,
+          updatedAt,
+        },
+      }}));
+    } catch { /* debug only */ }
+  }
+
+  /**
+   * 🚀 性能修复（2026-09-05）：批量落盘缓冲的制卡事件。
+   * 将 100ms 窗口内到达的 NewCard/NewErrorCard 合并为一次 updateBlock，
+   * 使 N 张卡的渲染开销从 O(N²) 降为 O(N)。
+   */
+  private flushAnkiCardBuffer(blockId: string): void {
+    const queued = this.ankiCardFlushQueue.get(blockId);
+    if (!queued) return;
+    this.ankiCardFlushQueue.delete(blockId);
+    if (queued.timer) {
+      clearTimeout(queued.timer);
+    }
+    if (queued.cards.length === 0) return;
+
+    const state = this.getCurrentState();
+    const targetBlock = state.blocks.get(blockId);
+    if (!targetBlock) return;
+
+    const currentOutput = (targetBlock.toolOutput as Record<string, unknown> | undefined) ?? {};
+    const currentCards = (currentOutput.cards as AnkiCard[] | undefined) ?? [];
+    const newCards = queued.cards.filter(
+      (card) => !card.id || !currentCards.some((c) => c.id === card.id),
+    );
+    if (newCards.length === 0) return;
+
+    const nextCards = [...currentCards, ...newCards];
+    const documentId = queued.documentId;
+    const ensureDocumentId = documentId && !currentOutput.documentId ? { documentId } : {};
+    const nextTemplateId =
+      (currentOutput.templateId as string | undefined) ||
+      (newCards[0]?.template_id ?? undefined) ||
+      null;
+    const nextProgress = {
+      ...(currentOutput.progress as Record<string, unknown> | undefined),
+      stage: (currentOutput.progress as any)?.stage ?? 'streaming',
+      cardsGenerated: nextCards.length,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    this.recordAnkiSourceSnapshot(
+      targetBlock,
+      'event-new-card-batched',
+      nextCards,
+      targetBlock.status === 'success' || targetBlock.status === 'error' ? targetBlock.status : 'running',
+      (ensureDocumentId.documentId as string | undefined) ?? (currentOutput.documentId as string | undefined),
+    );
+    state.updateBlock(blockId, {
+      toolOutput: {
+        ...currentOutput,
+        ...ensureDocumentId,
+        cards: nextCards,
+        templateId: nextTemplateId,
+        progress: nextProgress,
+      },
+      ...(targetBlock.status === 'success' || targetBlock.status === 'error'
+        ? {}
+        : { status: 'running' }),
+    });
+  }
+
   /**
    * 处理 ChatAnki 后端事件（anki_generation_event）
    * 将 NewCard/进度事件桥接到 anki_cards 块，实现实时预览
@@ -1017,142 +1184,38 @@ export class ChatV2TauriAdapter {
       }}));
     } catch { /* debug only */ }
 
-    const currentOutput = (targetBlock.toolOutput as Record<string, unknown> | undefined) ?? {};
+    // 🚀 性能修复（2026-09-05）：非卡片事件到达前先冲刷合并缓冲，
+    // 保证进度/完成/失败事件基于最新卡片列表（否则终态事件会用旧 toolOutput 覆盖刚冲刷的卡片）
+    if (type !== 'NewCard' && type !== 'NewErrorCard') {
+      this.flushAnkiCardBuffer(targetBlock.id);
+    }
+    const latestBlock = this.getCurrentState().blocks.get(targetBlock.id) ?? targetBlock;
+
+    const currentOutput = (latestBlock.toolOutput as Record<string, unknown> | undefined) ?? {};
     const currentCards = (currentOutput.cards as AnkiCard[] | undefined) ?? [];
     const ensureDocumentId = documentId && !currentOutput.documentId ? { documentId } : {};
 
-    const extractCardQuestion = (card: AnkiCard): string => {
-      const fields = (card.fields ?? {}) as Record<string, unknown>;
-      const extraFields = (card.extra_fields ?? {}) as Record<string, unknown>;
-      const fieldQuestion =
-        fields.question ??
-        fields.Question ??
-        extraFields.question ??
-        extraFields.Question;
-      if (typeof fieldQuestion === 'string' && fieldQuestion.trim()) return fieldQuestion.trim();
-      const front = card.front ?? '';
-      if (front.trim().startsWith('{') && front.trim().endsWith('}')) {
-        try {
-          const parsed = JSON.parse(front) as Record<string, unknown>;
-          const q = parsed.Question ?? parsed.question ?? parsed.front;
-          if (typeof q === 'string' && q.trim()) return q.trim();
-        } catch {
-          // ignore
-        }
-      }
-      return front.replace(/\s+/g, ' ').trim().slice(0, 80);
-    };
-
-    const buildCardsSignature = (cards: AnkiCard[]): string =>
-      cards
-        .map((card) => `${card.id ?? 'no-id'}::${card.template_id ?? 'no-template'}::${extractCardQuestion(card)}`)
-        .join('|');
-
-    const recordSourceSnapshot = (
-      source: string,
-      cards: AnkiCard[],
-      status: string | undefined,
-      docId: string | undefined,
-    ) => {
-      const signature = buildCardsSignature(cards);
-      const updatedAt = new Date().toISOString();
-      const cardIds = cards.map((card) => card.id ?? 'no-id');
-
-      const win = window as Window & {
-        __chatankiCardSourceByBlock?: Record<
-          string,
-          {
-            source: string;
-            blockStatus?: string;
-            documentId?: string;
-            cardIds: string[];
-            signature: string;
-            updatedAt: string;
-          }
-        >;
-      };
-      if (!win.__chatankiCardSourceByBlock) {
-        win.__chatankiCardSourceByBlock = {};
-      }
-      win.__chatankiCardSourceByBlock[targetBlock.id] = {
-        source,
-        blockStatus: status,
-        documentId: docId,
-        cardIds,
-        signature,
-        updatedAt,
-      };
-
-      try {
-        window.dispatchEvent(new CustomEvent('chatanki-debug-lifecycle', { detail: {
-          level: 'info',
-          phase: 'bridge:source',
-          summary: `source snapshot ${source} block=${targetBlock.id.slice(0, 8)} cards=${cards.length} doc=${docId ?? 'null'}`,
-          detail: {
-            blockId: targetBlock.id,
-            source,
-            blockStatus: status ?? null,
-            documentId: docId ?? null,
-            cardsCount: cards.length,
-            cardIds,
-            signature,
-            updatedAt,
-          },
-        }}));
-      } catch { /* debug only */ }
-    };
-
     if (type === 'NewCard' || type === 'NewErrorCard') {
       if (!cardData) return;
-      const exists = cardData.id ? currentCards.some((c) => c.id === cardData.id) : false;
-      if (exists) {
-        try {
-          window.dispatchEvent(new CustomEvent('chatanki-debug-lifecycle', { detail: {
-            level: 'debug', phase: 'bridge:event',
-            summary: `${type} duplicate dropped: ${cardData.id?.slice(0, 10) ?? 'no-id'}`,
-            documentId, blockId: targetBlock.id,
-          }}));
-        } catch { /* debug only */ }
+      // 🚀 性能修复（2026-09-05）：卡片事件进入合并缓冲，100ms 窗口批量写入 store。
+      // 原实现每张卡一次 O(N) 签名计算 + updateBlock + 2 个调试 CustomEvent，
+      // N 张卡产生 O(N²) 渲染与事件洪水（与安卓导入进度事件洪水同类问题）。
+      const existsInState = cardData.id ? currentCards.some((c) => c.id === cardData.id) : false;
+      const queued = this.ankiCardFlushQueue.get(targetBlock.id);
+      const existsInQueue = !!(cardData.id && queued && queued.cards.some((c) => c.id === cardData.id));
+      if (existsInState || existsInQueue) {
+        return; // 重复卡片丢弃（与原逻辑一致）
       }
-      if (!exists) {
-        try {
-          window.dispatchEvent(new CustomEvent('chatanki-debug-lifecycle', { detail: {
-            level: 'debug', phase: 'bridge:card',
-            summary: `${type} → block ${targetBlock.id.slice(0, 8)} | template=${(cardData as any).template_id ?? 'null'} | total=${currentCards.length + 1}`,
-            documentId, blockId: targetBlock.id,
-            detail: { cardId: cardData.id, templateId: (cardData as any).template_id, front: (cardData.front || '').slice(0, 60) },
-          }}));
-        } catch { /* */ }
+      if (queued) {
+        queued.cards.push(cardData);
+        if (documentId && !queued.documentId) queued.documentId = documentId;
+      } else {
+        this.ankiCardFlushQueue.set(targetBlock.id, {
+          cards: [cardData],
+          documentId,
+          timer: setTimeout(() => this.flushAnkiCardBuffer(targetBlock.id), 100),
+        });
       }
-      const nextCards = exists ? currentCards : [...currentCards, cardData];
-      const nextTemplateId =
-        (currentOutput.templateId as string | undefined) ||
-        (cardData.template_id ?? undefined) ||
-        null;
-      const nextProgress = {
-        ...(currentOutput.progress as Record<string, unknown> | undefined),
-        stage: (currentOutput.progress as any)?.stage ?? 'streaming',
-        cardsGenerated: nextCards.length,
-        lastUpdatedAt: new Date().toISOString(),
-      };
-      recordSourceSnapshot(
-        'event-new-card',
-        nextCards,
-        targetBlock.status === 'success' || targetBlock.status === 'error' ? targetBlock.status : 'running',
-        (ensureDocumentId.documentId as string | undefined) ?? (currentOutput.documentId as string | undefined),
-      );
-      state.updateBlock(targetBlock.id, {
-        toolOutput: {
-          ...currentOutput,
-          ...ensureDocumentId,
-          cards: nextCards,
-          templateId: nextTemplateId,
-          progress: nextProgress,
-        },
-        ...(targetBlock.status === 'success' || targetBlock.status === 'error'
-          ? {}
-          : { status: 'running' }),
-      });
       return;
     }
 
@@ -1165,7 +1228,8 @@ export class ChatV2TauriAdapter {
             : 'processing',
         lastUpdatedAt: new Date().toISOString(),
       };
-      recordSourceSnapshot(
+      this.recordAnkiSourceSnapshot(
+        targetBlock,
         type === 'TaskStatusUpdate' ? 'event-task-status' : 'event-doc-started',
         currentCards,
         targetBlock.status === 'success' || targetBlock.status === 'error' ? targetBlock.status : 'running',
@@ -1193,7 +1257,8 @@ export class ChatV2TauriAdapter {
           detail: { cardsCount: currentCards.length, templateIds: [...new Set(currentCards.map((c: any) => c.template_id).filter(Boolean))] },
         }}));
       } catch { /* */ }
-      recordSourceSnapshot(
+      this.recordAnkiSourceSnapshot(
+        targetBlock,
         type === 'TaskCompleted' ? 'event-task-completed' : 'event-doc-completed',
         currentCards,
         'success',
