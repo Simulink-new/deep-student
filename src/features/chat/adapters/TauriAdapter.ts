@@ -1975,7 +1975,7 @@ export class ChatV2TauriAdapter {
       // 这样 sendMessageWithIds 创建的助手占位消息会立即显示本轮实际模型。
       const activeModelId = sendStateSnapshot.chatParams.model2OverrideId || sendStateSnapshot.chatParams.modelId;
       await this.ensureModelMetadataReady(activeModelId);
-      const options = this.buildSendOptions({
+      const options = await this.buildSendOptions({
         state: sendStateSnapshot,
         pendingContextRefs,
       });
@@ -2150,7 +2150,7 @@ export class ChatV2TauriAdapter {
       // 这样 sendMessageWithIds 创建的助手占位消息会立即显示本轮实际模型。
       const activeModelId = sendStateSnapshot.chatParams.model2OverrideId || sendStateSnapshot.chatParams.modelId;
       await this.ensureModelMetadataReady(activeModelId);
-      const options = this.buildSendOptions({
+      const options = await this.buildSendOptions({
         state: sendStateSnapshot,
         pendingContextRefs,
       });
@@ -2433,7 +2433,7 @@ export class ChatV2TauriAdapter {
       await this.ensureModelMetadataReady(activeModelId);
       const options = this.applyOriginalReplaySkillState(
         messageId,
-        this.buildSendOptions(),
+        await this.buildSendOptions(),
         this.getCurrentState().chatParams.selectedMcpServers,
       );
       const validIds = await this.getValidChatModelIdSet();
@@ -2619,7 +2619,7 @@ export class ChatV2TauriAdapter {
       await this.ensureModelMetadataReady(activeModelId);
       const options = this.applyOriginalReplaySkillState(
         messageId,
-        this.buildSendOptions(),
+        await this.buildSendOptions(),
         this.getCurrentState().chatParams.selectedMcpServers,
       );
       await this.applyRuntimeModelSelection(options);
@@ -2749,7 +2749,7 @@ export class ChatV2TauriAdapter {
       await this.ensureModelMetadataReady(activeModelId);
       const options = this.applyOriginalReplaySkillState(
         messageId,
-        this.buildSendOptions(),
+        await this.buildSendOptions(),
         this.getCurrentState().chatParams.selectedMcpServers,
       );
       await this.applyRuntimeModelSelection(options);
@@ -3103,7 +3103,7 @@ export class ChatV2TauriAdapter {
       await this.ensureModelMetadataReady(activeModelId);
       const options = this.applyOriginalReplaySkillState(
         messageId,
-        this.buildSendOptions(),
+        await this.buildSendOptions(),
         this.getCurrentState().chatParams.selectedMcpServers,
         variantId,
       );
@@ -3163,7 +3163,7 @@ export class ChatV2TauriAdapter {
       await this.ensureModelMetadataReady(activeModelId);
       const options = this.applyOriginalReplaySkillState(
         messageId,
-        this.buildSendOptions(),
+        await this.buildSendOptions(),
         this.getCurrentState().chatParams.selectedMcpServers,
       );
       await this.applyRuntimeModelSelection(options);
@@ -3726,7 +3726,7 @@ export class ChatV2TauriAdapter {
   private notifyContextTruncated(removedCount: number): void {
     showGlobalNotification('warning', i18n.t('chatV2:chat.context_truncated', { count: removedCount }));
   }
-  private buildSendOptions(snapshot?: BuildSendOptionsSnapshot): SendOptions {
+  private async buildSendOptions(snapshot?: BuildSendOptionsSnapshot): Promise<SendOptions> {
     // 🔧 使用 getCurrentState() 获取最新状态，而非构造时的快照
     // 这确保了 enableThinking 等用户实时修改的参数能正确传递
     const currentState = snapshot?.state ?? this.getCurrentState();
@@ -3902,7 +3902,7 @@ export class ChatV2TauriAdapter {
       // ========== MCP 工具 Schema 注入 ==========
       // 从 mcpService 获取选中服务器的工具 Schema，传递给后端
       // 后端直接使用这些 Schema 注入到 LLM，而不需要自己连接 MCP 服务器
-      mcpToolSchemas: this.collectMcpToolSchemas(
+      mcpToolSchemas: await this.collectMcpToolSchemas(
         chatParams.selectedMcpServers,
         authoritativeToolSkillIds,
       ),
@@ -4029,10 +4029,10 @@ export class ChatV2TauriAdapter {
    * - description: 工具描述
    * - inputSchema: JSON Schema 定义参数
    */
-  private collectMcpToolSchemas(
+  private async collectMcpToolSchemas(
     selectedServerIds?: string[],
     loadedSkillIds?: string[]
-  ): Array<{ name: string; serverId?: string; description?: string; inputSchema?: unknown }> {
+  ): Promise<Array<{ name: string; serverId?: string; description?: string; inputSchema?: unknown }>> {
     const schemas: Array<{ name: string; serverId?: string; description?: string; inputSchema?: unknown }> = [];
 
     // 渐进披露模式：只注入 load_skills 元工具 + 已加载的 Skills 工具
@@ -4102,7 +4102,12 @@ export class ChatV2TauriAdapter {
         }
 
         // 从 McpService 缓存获取该服务器的工具列表
-        const tools = McpService.getCachedToolsFor(serverId);
+        let tools = McpService.getCachedToolsFor(serverId);
+        if (tools.length === 0) {
+          // 页面重载/首启后缓存为空（WebView 重载清空内存态且尚未重连）：
+          // 发送路径兜底，连接并完成工具发现后再注入，避免模型只看到 load_skills。
+          tools = await McpService.ensureServerTools(serverId);
+        }
         for (const tool of tools) {
           schemas.push({
             name: tool.name,

@@ -306,6 +306,19 @@ pub fn is_mcp_available_sync() -> bool {
     get_global_mcp_client_sync().is_some()
 }
 
+/// cmd.exe 与多数子进程启动方式无法以 `\\?\` 扩展路径前缀执行脚本（.cmd/.bat
+/// 尤其如此）：spawn 表面成功，但进程静默不执行，表现为后续请求超时。
+/// 上游（canonicalize / 模型传参）可能把这种形式传进来，spawn 前还原为常规路径。
+fn normalize_command_path(command: &str) -> String {
+    if let Some(rest) = command.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = command.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        command.to_string()
+    }
+}
+
 /// 创建实际的 stdio 传输实现
 pub async fn create_stdio_transport(
     command: &str,
@@ -314,6 +327,13 @@ pub async fn create_stdio_transport(
     env: &std::collections::HashMap<String, String>,
     working_dir: Option<&std::path::PathBuf>,
 ) -> McpResult<impl super::transport::Transport> {
+    let command = normalize_command_path(command);
+    if command.starts_with(r"\\?\") {
+        // normalize 未覆盖的残余变体：与其静默超时，不如给出可诊断的失败
+        return Err(McpError::TransportError(format!(
+            "Command path uses an unsupported extended-length form and cannot be spawned: {command}"
+        )));
+    }
     log::info!(
         "Spawning MCP process: {} {:?} with {} env vars",
         command,
@@ -322,12 +342,20 @@ pub async fn create_stdio_transport(
     );
 
     // 启动 MCP 子进程
-    let mut cmd = Command::new(command);
+    let mut cmd = Command::new(&command);
     cmd.kill_on_drop(true)
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    // MCP server 是长驻进程：GUI 进程 spawn 控制台程序（.cmd 经 cmd.exe 包装）时，
+    // 缺少此标志会分配一个一直挂在前台的控制台窗口（与库内其他 spawn 点的 CREATE_NO_WINDOW 惯例一致）
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
 
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);
