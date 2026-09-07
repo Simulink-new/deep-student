@@ -601,6 +601,20 @@ fn apply_runtime_reasoning_overrides(
     }
 }
 
+/// 流正常结束（非取消）但正文/思维链/工具调用全空时，视为失败而非成功——
+/// 静默空成功会让助手消息白卷；转为错误后可走 tool_loop 的瞬时错误重试。
+fn validate_stream_payload(
+    was_cancelled: bool,
+    content: &str,
+    reasoning: &str,
+    tool_call_count: usize,
+) -> Result<()> {
+    if !was_cancelled && content.is_empty() && reasoning.is_empty() && tool_call_count == 0 {
+        return Err(AppError::llm("模型返回空响应，请重试"));
+    }
+    Ok(())
+}
+
 /// 输出审计日志（info 级别）+ 可选文件持久化（用于无 window 的非流式路径）
 pub(crate) fn log_llm_request_audit(
     tag: &str,
@@ -2366,6 +2380,16 @@ impl LLMManager {
                 );
             }
             pending_tool_calls.clear();
+        }
+
+        if let Err(error) = validate_stream_payload(
+            was_cancelled,
+            &full_content,
+            &reasoning_content,
+            captured_tool_calls.len(),
+        ) {
+            self.clear_cancel_channel(stream_event).await;
+            return Err(error);
         }
 
         // Clear cancel channel for this stream

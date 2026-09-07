@@ -671,6 +671,8 @@ impl ChatV2Pipeline {
                 || lower.contains("status: 502")
                 || lower.contains("status: 503")
                 || lower.contains("status: 504")
+                || lower.contains("empty response")
+                || err_str.contains("空响应")
         };
 
         let mut call_result =
