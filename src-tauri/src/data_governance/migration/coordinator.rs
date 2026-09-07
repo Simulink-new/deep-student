@@ -699,7 +699,8 @@ impl MigrationCoordinator {
         let to_version = self.get_current_version(&conn)?;
 
         // fail-close：迁移后验证失败时立即终止
-        if let Err(e) = self.verify_migrations(&conn, &id, migration_set, to_version) {
+        if let Err(e) = self.verify_migrations(&conn, &id, migration_set, to_version, applied_count)
+        {
             self.log_migration_failure(
                 &id,
                 from_version,
@@ -2983,6 +2984,7 @@ impl MigrationCoordinator {
         id: &DatabaseId,
         migration_set: &MigrationSet,
         current_version: u32,
+        applied_count: usize,
     ) -> Result<(), MigrationError> {
         // 验证所有已应用的迁移
         // 注意：current_version 是 Refinery 记录的版本（如 20260130）
@@ -2992,10 +2994,16 @@ impl MigrationCoordinator {
             }
         }
 
-        let allow_rebaseline = migration_set
-            .get(current_version as i32)
-            .map(|m| m.idempotent)
-            .unwrap_or(false);
+        // fingerprint rebaseline 仅允许在"本次启动确实（重新）应用了迁移、
+        // 且头部迁移声明为 idempotent"时发生——幂等迁移重跑可能合法地收敛 schema。
+        // 稳态启动（applied_count == 0）下的指纹漂移意味着外部篡改，必须 fail-close，
+        // 否则只要头部迁移恰好是 idempotent，漂移检测就永久失效。
+        // （🆕 2026-09 移植自上游 8ed21167d）
+        let allow_rebaseline = applied_count > 0
+            && migration_set
+                .get(current_version as i32)
+                .map(|m| m.idempotent)
+                .unwrap_or(false);
         // 数据库历史版本比本二进制还新（降级/回退场景）：指纹必然对不上，
         // fail-close 会误伤，跳过指纹校验仅告警
         let latest_supported_version = migration_set.latest_version();
@@ -4036,7 +4044,13 @@ mod tests {
         .unwrap();
 
         coordinator
-            .verify_migrations(&conn, &DatabaseId::Mistakes, &MISTAKES_MIGRATIONS, 20260130)
+            .verify_migrations(
+                &conn,
+                &DatabaseId::Mistakes,
+                &MISTAKES_MIGRATIONS,
+                20260130,
+                1,
+            )
             .unwrap();
 
         let check_sql = format!(
