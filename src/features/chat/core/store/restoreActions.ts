@@ -171,9 +171,16 @@ export function createRestoreActions(
           // 2. 转换块数据（分段恢复：每个块独立处理，单个块失败不阻塞整个会话）
           const tBlockMapStart = performance.now();
           const blocksMap = new Map<string, Block>();
+          // 旧快照可能含畸形记录：先建消息 id 集合，悬空块（父消息缺失）直接隔离，
+          // 腐坏限制在单块级别，保住会话其余部分
+          const restorableMessageIds = new Set(messages.map((m) => m.id));
           let skippedBlockCount = 0;
           for (const blk of blocks) {
             try {
+              if (!restorableMessageIds.has(blk.messageId)) {
+                skippedBlockCount++;
+                continue;
+              }
               // 🔧 已弃用工具检测：如果块类型为 mcp_tool 且工具名匹配已弃用模式，
               // 自动转换为 deprecated_tool 类型，保留完整历史数据
               const rawType = blk.type as BlockType;
@@ -241,7 +248,13 @@ export function createRestoreActions(
           const messageMap = new Map<string, Message>();
           const messageOrder: string[] = [];
 
+          let skippedMessageCount = 0;
           for (const msg of sortedMessages) {
+            try {
+            if (!msg || typeof msg.id !== 'string' || msg.id.length === 0) {
+              skippedMessageCount++;
+              continue;
+            }
             const message: Message = {
               id: msg.id,
               role: msg.role,
@@ -272,8 +285,25 @@ export function createRestoreActions(
               variants: msg.variants,
               sharedContext: msg.sharedContext,
             };
+            // 丢弃指向上面被隔离块的引用——单块腐坏不影响消息本身可见
+            message.blockIds = (message.blockIds ?? []).filter((id) => blocksMap.has(id));
+            message.variants = message.variants?.map((variant) => ({
+              ...variant,
+              blockIds: (variant.blockIds ?? []).filter((id) => blocksMap.has(id)),
+            }));
             messageMap.set(msg.id, message);
             messageOrder.push(msg.id);
+            } catch (error) {
+              skippedMessageCount++;
+              console.warn('[ChatStore] Skipping incompatible message during restore:', msg?.id, error);
+            }
+          }
+          if (skippedMessageCount > 0) {
+            console.warn('[ChatStore] Restore isolated corrupt records:', {
+              skippedMessageCount,
+              skippedBlockCount,
+              sessionId: session.id,
+            });
           }
           const tMsgMapEnd = performance.now();
           sessionSwitchPerf.mark('set_data_end', {

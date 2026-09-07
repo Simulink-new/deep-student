@@ -578,6 +578,17 @@ function skipGapAndFlush(
 function processEventInternal(store: ChatStore, event: BackendEvent): void {
   const { type, variantId, messageId, modelId, status, error, phase, blockId, sequenceId } = event;
 
+  // 丢弃显式属于其他会话的事件：后端流可能存活到会话切换之后，
+  // 接受这些迟到事件会把旧内容追加进新激活的 store（尤其 block id 碰撞时）。
+  // 必须在创建/污染当前会话的 EventContext 之前拦截。
+  if (event.sessionId && event.sessionId !== store.sessionId) {
+    console.warn(
+      `[EventBridge] Ignoring stale event for session ${event.sessionId}; ` +
+        `active session is ${store.sessionId}. type=${type}, phase=${phase}`,
+    );
+    return;
+  }
+
   if (shouldDropEventBySkillVersion(store, event)) {
     logMultiVariant('adapter', 'drop_stale_skill_state_event', {
       type,
