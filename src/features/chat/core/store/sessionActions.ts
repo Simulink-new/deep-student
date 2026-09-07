@@ -450,6 +450,13 @@ export function createSessionActions(
         },
 
         continueMessage: async (messageId: string, variantId?: string): Promise<void> => {
+          // 🔧 修复：用户点击"继续执行"即确认解除 tool_limit 阻塞。
+          // 消息区按钮（MessageItem.handleContinue）直达本方法，此前从不清除
+          // pendingBlockingInteraction，导致输入栏的 tool_limit 提示条残留。
+          // 输入栏按钮路径本就先清再继续，此处幂等。
+          if (getState().pendingBlockingInteraction?.kind === 'tool_limit') {
+            set({ pendingBlockingInteraction: null });
+          }
           const continueCallback = (getState() as ChatStoreState & ChatStore & {
             _continueMessageCallback?: ((messageId: string, variantId?: string) => Promise<void>) | null
           })._continueMessageCallback;

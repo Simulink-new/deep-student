@@ -163,6 +163,17 @@ function isEventProcessed(sessionId: string, sequenceId: number): boolean {
   return ids?.has(sequenceId) ?? false;
 }
 
+/**
+ * 🔧 重复 start 防护：判断 blockId 是否为已知块（已存在于 store.blocks）。
+ * 断流重连/事件重放可能再次发送 start；已知块应复用而非克隆。
+ * （上游对应版本还检查 context.openBlocks；fork 的 EventContext 无此字段，
+ *  块创建即写入 store.blocks，检查 store 已足够。）
+ */
+function isBlockKnown(store: ChatStore, blockId: string): boolean {
+  const blocks = (store as { blocks?: Map<string, unknown> }).blocks;
+  return blocks instanceof Map && blocks.has(blockId);
+}
+
 function markEventProcessed(sessionId: string, sequenceId: number): void {
   let ids = processedEventIds.get(sessionId);
   if (!ids) {
@@ -791,9 +802,22 @@ function handleBlockEventWithVariant(
     case 'start': {
       if (handler.onStart) {
         const startPayload: EventStartPayload = payload ?? {};
-        const effectiveBlockId = blockId
-          ? handler.onStart(store, effectiveMessageId, startPayload, blockId)
-          : handler.onStart(store, effectiveMessageId, startPayload);
+        // 🔧 重复 start 防护：断流重连/事件重放可能再次发送 start，且该
+        // blockId 已存在于 store（restore 后继续流式、同事件重复到达）。
+        // 此时复用已有块，不再创建克隆块追加到 blockIds 末尾——克隆块会
+        // 与原文重复且永远收不到正确的 end，导致工具块/思维链残留在消息
+        // 底部。
+        let effectiveBlockId: string | undefined;
+        if (blockId && isBlockKnown(store, blockId)) {
+          effectiveBlockId = blockId;
+          console.warn(
+            `[EventBridge] Duplicate '${type}' start for known block, reusing existing: blockId=${blockId}`
+          );
+        } else {
+          effectiveBlockId = blockId
+            ? handler.onStart(store, effectiveMessageId, startPayload, blockId)
+            : handler.onStart(store, effectiveMessageId, startPayload);
+        }
 
         logMultiVariant('adapter', 'handleBlockEventWithVariant_block_created', {
           type,
@@ -987,9 +1011,18 @@ export function handleBackendEvent(store: ChatStore, event: BackendEvent): void 
         // 转换 payload 类型
         const startPayload: EventStartPayload = payload ?? {};
         
-        // 如果后端传了 blockId，直接使用；否则由前端创建
-        let effectiveBlockId: string;
-        if (blockId) {
+        // 🔧 重复 start 防护：断流重连/事件重放可能再次发送 start，且该
+        // blockId 已存在于 store（restore 后继续流式、同事件重复到达）。
+        // 此时复用已有块，不再创建克隆块追加到 blockIds 末尾——克隆块会
+        // 与原文重复且永远收不到正确的 end，导致工具块/思维链残留在消息
+        // 底部。
+        let effectiveBlockId: string | undefined;
+        if (blockId && isBlockKnown(store, blockId)) {
+          effectiveBlockId = blockId;
+          console.warn(
+            `[EventBridge] Duplicate '${type}' start for known block, reusing existing: blockId=${blockId}`
+          );
+        } else if (blockId) {
           // 后端传了 blockId（多工具并发场景）
           // 仍然需要调用 onStart 创建块，但使用后端的 blockId
           effectiveBlockId = handler.onStart(
