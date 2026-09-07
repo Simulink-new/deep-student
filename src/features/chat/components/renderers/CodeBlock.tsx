@@ -749,6 +749,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, isStr
         >
           <div
             className={`mermaid-preview ${panning ? 'panning' : ''} ${mermaidError ? 'has-error' : ''}`}
+            data-gesture-ignore
             ref={previewRef}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}

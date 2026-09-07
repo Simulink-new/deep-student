@@ -17,8 +17,8 @@ import { MobileSidebarNavigation } from './MobileSidebarNavigation';
 /** 三屏位置枚举 */
 export type ScreenPosition = 'left' | 'center' | 'right';
 
-/** 需要放行手势的交互元素选择器，避免阻断点击 */
-const INTERACTIVE_SELECTOR = 'button, [role="button"], a, input, select, textarea, option, label, [data-gesture-ignore]';
+/** 需要放行手势的交互元素选择器，避免阻断点击；slider 豁免防止拖动滑块误触整屏滑动 */
+const INTERACTIVE_SELECTOR = 'button, [role="button"], [role="slider"], a, input, select, textarea, option, label, [data-gesture-ignore]';
 
 const isInteractiveTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof Element)) return false;
@@ -315,6 +315,20 @@ export const MobileSlidingLayout: React.FC<MobileSlidingLayoutProps> = ({
     setIsDragging(false);
   }, [sidebarWidth, sidebarOpen, threshold, onSidebarOpenChange, isThreeScreenMode, onScreenPositionChange, screenPosition, rightPanelEnabled]);
 
+  // 处理拖拽取消（touchcancel / 页面失焦 / 上下文菜单）：回弹到基准位置，不做阈值提交。
+  // 系统中断（通知栏、来电等）触发 touchcancel 时若走 handleDragEnd，
+  // 会把未完成的位移按阈值提交成用户未意图的页面切换。
+  const handleDragCancel = useCallback(() => {
+    if (!stateRef.current.isDragging) {
+      stateRef.current.axisLocked = null;
+      return;
+    }
+    stateRef.current.isDragging = false;
+    stateRef.current.axisLocked = null;
+    setIsDragging(false);
+    // isDragging 翻 false 后渲染回退到 baseTranslate，面板经 CSS transition 回弹
+  }, []);
+
   const closeSidebarAfterAppNavigation = useCallback(() => {
     if (isThreeScreenMode && onScreenPositionChange) {
       onScreenPositionChange('center');
@@ -345,6 +359,12 @@ export const MobileSlidingLayout: React.FC<MobileSlidingLayoutProps> = ({
       handleDragEnd();
     };
 
+    // touchcancel 是系统中断（通知栏/来电/手势被抢占），不是用户完成滑动——
+    // 必须回弹而非提交，否则部分位移会被阈值逻辑误提交
+    const onTouchCancel = () => {
+      handleDragCancel();
+    };
+
     // 鼠标事件
     const onMouseDown = (e: MouseEvent) => {
       // 只响应左键
@@ -362,10 +382,11 @@ export const MobileSlidingLayout: React.FC<MobileSlidingLayoutProps> = ({
       handleDragEnd();
     };
 
-    // 页面失焦 / 上下文菜单弹出时，强制结束拖拽，防止 isDragging 卡死
+    // 页面失焦 / 上下文菜单弹出时，取消拖拽（回弹），防止 isDragging 卡死；
+    // 与 touchcancel 同语义——中断场景不应提交部分位移
     const onDragAbort = () => {
       if (stateRef.current.isDragging) {
-        handleDragEnd();
+        handleDragCancel();
       }
     };
 
@@ -373,7 +394,7 @@ export const MobileSlidingLayout: React.FC<MobileSlidingLayoutProps> = ({
     container.addEventListener('touchstart', onTouchStart, { passive: true });
     container.addEventListener('touchmove', onTouchMove, { passive: false });
     container.addEventListener('touchend', onTouchEnd, { passive: true });
-    container.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', onTouchCancel, { passive: true });
 
     // 绑定鼠标事件
     container.addEventListener('mousedown', onMouseDown);
@@ -389,14 +410,14 @@ export const MobileSlidingLayout: React.FC<MobileSlidingLayoutProps> = ({
       container.removeEventListener('touchstart', onTouchStart);
       container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('touchend', onTouchEnd);
-      container.removeEventListener('touchcancel', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchCancel);
       container.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('visibilitychange', onDragAbort);
       document.removeEventListener('contextmenu', onDragAbort);
     };
-  }, [handleDragStart, handleDragMove, handleDragEnd]);
+  }, [handleDragStart, handleDragMove, handleDragEnd, handleDragCancel]);
 
   // 计算最终的 transform 值
   const translateX = isDragging ? currentTranslate : baseTranslate;
