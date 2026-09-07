@@ -108,6 +108,37 @@
 | 4ab48384e | 白屏——循环 vendor chunk 与 barrel import | 触碰 TauriAdapter.ts+tauri.conf.json |
 | a064ac689 | perf: 窗口拖拽卡顿的样式失效热点 | 触碰 lib.rs+App.tsx+InputBarUI.tsx |
 
+### 2.3-R 处置结果 (填写时间: 2026-09-07 14:19 CST)
+
+全部 16 个候选已处置: **12 移植落地 (13 commits) / 4 跳过**。处置后分支总计 36 commits over main。
+处置原则: fork 已有等价修复则跳过;功能增加与 UI 行为变更从严,仅保留用户无感的性能优化。
+
+| 上游 commit | 处置 | fork commit / 理由 |
+|-------------|------|--------------------|
+| dbfc7d0de | ✅ 已移植 | `2d247b954`(审批栏卡死: transientRuntimeRegistry + approval 已决态 + BlockingApprovalBar) |
+| 3e3a47087 | ✅ 已移植 | `7078dfc7`(晚到/重放块按时间戳稳定归位, chat stores) |
+| 712209310 | ✅ 已移植 | `df2cd200`(MobileSlidingLayout/CodeBlock 手势 touchcancel 卡死+误触豁免) |
+| 481c6efe2 | ✅ 已移植 | `d1fcc147`(空模型响应自动重试: model2_pipeline validate_stream_payload + tool_loop) |
+| 7691dc8cd | ✅ 已移植 | `0ece8217`(粘贴笔记图片路径规范化: file_manager.rs / imageUpload.ts) |
+| 1d2302e59 | ✅ 已移植(部分) | `8c7f381d`(隔离过期流: eventBridge / restoreActions);缺 2 个后端 handler 部分未采——fork 已重构 |
+| 4952286d6 | ✅ 已移植(部分) | `aec91e0f`(compaction 失败冷却 + 非流式 Accept 修正 + token 估算采样外推);上游目录拆分未采,fork 保持单文件 |
+| 1a1661db6 | ✅ 已移植(适配) | `a0381be2`(MCP stdio spawn 加固 + 发送时工具注入自愈;警示文件 TauriAdapter.ts 已锚点核对) |
+| 4ccd2c121 | ✅ 已移植(适配) | `6a6048aa`(startup_gate 启动完成闸门 + maintenance 有界等待;lib.rs 注册适配) |
+| 8ed21167d | ✅ 已移植(部分) | `bded2199`(path_parser 字节索引 / crypto 密钥轮换 / prompt_builder XML 转义 / apkg uuid 临时目录 / coordinator rebaseline 门);vfs 媒体恢复 SKIP——fork 已有更富等价(auto_resume_ocr_tasks + OCP 检查点 + is_active_stage_str 覆盖 pending) |
+| aa14a5e2b | ✅ 已移植(部分) | `f0ea9df4`(script_checker 括号配平 FK 归属) + `87db1be5`(S3 分页截断报错 + WebDAV 超时套件,适配);sync LWW 簇 SKIP——fork 已重构为 HLC 15 文件架构,不可互移;dataGovernance camelCase fork 已等价;anki AnkiSyncReport 行为变更留用户审阅 |
+| 9af68f48b | ⏭️ 跳过 | 已合并——fork main 上 `58c42347` 即同一提交(同作者/message/10 文件 602+/208-,逐 hunk 一致) |
+| 4ab48384e | ⏭️ 跳过 | fork 已有等价修复(白屏循环 vendor chunk) |
+| a064ac689 | ✅ 已移植(部分/适配) | `e50115ed`(6 文件: CrepeEditor.css 16 处宽键选择器枚举化 + flowtoken-patched.css 本地修补版 + markdown.css mermaid 选择器 + InputBarUI transition 收窄 + SettingsGroup content-visibility);workbench 簇 N/A(fork 无 workbench 功能);settings 虚拟化簇 SKIP(涉及滚动/hover 行为);`*[style*="mask"]` 等上游保留项同样保留 |
+| 91d538fb6 | ⏭️ 跳过(UI 行为) | 输入框字号/横屏安全区/徽章高度均为用户可见变更;其中 CrepeEditor dvh 2 行裁剪修复低风险,留用户定夺 |
+| e9803c0a2 | ⏭️ 跳过(UI 行为) | 视图层切换动画方向镜像为用户可见变更,留用户定夺 |
+
+**留用户审阅项**(未自动移植,可否决 SKIP 或要求补移):
+
+1. **anki AnkiSyncReport 语义变更** (aa14a5e2b 一部分): 同步结果全为重复时由报错改为 info 通知——用户可见行为变更,且依赖 D1 通知基建
+2. **sync LWW-vs-HLC 语义对照审计**: fork HLC 架构与上游 LWW 重写互不可移,如有疑虑可安排专项审计
+3. **91d538fb6 内 CrepeEditor dvh 2 行修复** (`max-height: min(380px, calc(100dvh - 16px))`): 低价防移动端菜单裁剪,用户无感
+4. **e9803c0a2 动画方向修复**: fork 发 Android 包,若用户感知过视图切换动画反向可考虑
+
 ### 2.4 明确跳过
 
 - **CI/发布修复 (~40)**: 上游 release-please/migration-gate 专用,fork 已断开上游更新通道
