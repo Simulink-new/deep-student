@@ -77,6 +77,31 @@ export function isVirtualUri(path: string): boolean {
   );
 }
 
+/**
+ * 在 File 对象上挂载本地绝对路径（Electron File.path 约定）。
+ *
+ * 拖拽/文件选择链路拿到本地路径构造 File 时调用，
+ * 供后续上传逻辑走"按路径直传"（后端直接读盘），
+ * 避免 read_file_bytes → File → base64 → 回传的多段跨界。
+ */
+export function attachNativeSourcePath<T extends File>(file: T, path: string): T {
+  (file as File & { path?: string }).path = path;
+  return file;
+}
+
+/**
+ * 读取 File 对象上挂载的本地绝对路径（Electron File.path 约定）。
+ *
+ * @returns 本地绝对路径；未挂载或为虚拟 URI（content:// 等，无法按路径直传）时返回 undefined
+ */
+export function getNativeSourcePath(file: File | Blob | null | undefined): string | undefined {
+  if (!file) return undefined;
+  const candidate = (file as File & { path?: string }).path;
+  if (typeof candidate !== 'string' || !candidate.trim()) return undefined;
+  if (isVirtualUri(candidate)) return undefined;
+  return candidate;
+}
+
 export interface FilePickerOptions {
   title?: string;
   defaultPath?: string;

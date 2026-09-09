@@ -20,10 +20,11 @@ import { useCallback, useRef } from 'react';
 import type { StoreApi } from 'zustand';
 import type { ChatStore, AttachmentMeta } from '../core/types';
 import { resourceStoreApi, type ContextRef, type ResourceType } from '../resources';
-import { uploadAttachment, type VfsContextRefData, type VfsResourceType } from '../context';
+import { uploadAttachment, uploadAttachmentByPath, type VfsContextRefData, type VfsResourceType } from '../context';
 import { IMAGE_TYPE_ID } from '../context/definitions/image';
 import { FILE_TYPE_ID } from '../context/definitions/file';
 import { getErrorMessage } from '@/utils/errorUtils';
+import { getNativeSourcePath } from '@/utils/fileManager';
 
 // ============================================================================
 // 日志前缀
@@ -181,19 +182,27 @@ export function useAttachmentContextRef(
       }
 
       try {
-        // 1. 读取文件为 base64
-        const base64Content = await readFileAsBase64(file);
+        // 1. ★ 按路径直传：拖拽链路的 File 携带本地绝对路径（File.path 约定）时，
+        //    跳过本地 base64 读取，由后端直接读盘上传
+        const sourcePath = getNativeSourcePath(file);
 
         // 2. 确定资源类型
         const { resourceType, typeId, vfsType } = getResourceTypeFromMime(file.type);
 
-        // 3. ★ 使用 VFS uploadAttachment 上传到 attachments 表
-        const uploadResult = await uploadAttachment({
-          name: file.name,
-          mimeType: file.type,
-          base64Content,
-          type: vfsType === 'image' ? 'image' : 'file',
-        });
+        // 3. ★ 使用 VFS uploadAttachment / uploadAttachmentByPath 上传到 attachments 表
+        const uploadResult = sourcePath
+          ? await uploadAttachmentByPath({
+              path: sourcePath,
+              name: file.name,
+              mimeType: file.type,
+              type: vfsType === 'image' ? 'image' : 'file',
+            })
+          : await uploadAttachment({
+              name: file.name,
+              mimeType: file.type,
+              base64Content: await readFileAsBase64(file),
+              type: vfsType === 'image' ? 'image' : 'file',
+            });
 
         console.log(
           LOG_PREFIX,

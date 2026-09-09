@@ -6,6 +6,7 @@ import {
   ATTACHMENT_IMAGE_EXTENSIONS,
   ATTACHMENT_DOCUMENT_EXTENSIONS,
 } from '@/features/chat/core/constants';
+import { attachNativeSourcePath, getNativeSourcePath } from '@/utils/fileManager';
 import i18n from '@/i18n';
 
 // 扩展名到 MIME 类型映射表（与 UnifiedDragDropZone EXTENSION_TO_MIME 保持一致）
@@ -272,7 +273,11 @@ export const useTauriDragAndDrop = ({
               type: mimeType,
               lastModified: Date.now(),
             });
-            
+
+            // ★ 挂载本地绝对路径（File.path 约定），供上传链路按路径直传
+            //   （跳过 base64 编码与回传；此处读取字节仅为本地预览/校验）
+            attachNativeSourcePath(file, path);
+
             acceptedFiles.push(file);
             emitDebugEvent(zoneId, 'file_converted', 'debug', `文件转换成功: ${finalFileName}`, {
               fileName: finalFileName,
@@ -297,8 +302,11 @@ export const useTauriDragAndDrop = ({
         }
 
         if (acceptedFiles.length > 0) {
-          // 去重：同一批次内部按 name+size 去重
-          const keyOf = (f: File) => `${f.name}_${f.size}_${f.type}`;
+          // 去重：同一批次内部按 name+size 去重（带路径的文件按路径去重，更精确）
+          const keyOf = (f: File) => {
+            const p = getNativeSourcePath(f);
+            return p ? `path:${p}` : `${f.name}_${f.size}_${f.type}`;
+          };
           const uniqMap = new Map<string, File>();
           for (const f of acceptedFiles) {
             const k = keyOf(f);

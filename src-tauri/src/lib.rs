@@ -1333,6 +1333,7 @@ pub fn run() {
             ,crate::vfs::ref_handlers::vfs_get_resource_ref_count
             // 附件操作命令
             ,crate::vfs::handlers::attachment_handlers::vfs_upload_attachment
+            ,crate::vfs::handlers::attachment_handlers::vfs_upload_attachment_by_path
             ,crate::vfs::handlers::attachment_handlers::vfs_get_attachment_content
             ,crate::vfs::handlers::attachment_handlers::vfs_get_attachment
             ,crate::vfs::handlers::attachment_handlers::vfs_delete_attachment

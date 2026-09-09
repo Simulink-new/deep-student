@@ -599,6 +599,23 @@ export interface UploadAttachmentParams {
 }
 
 /**
+ * 按本地路径上传附件参数
+ *
+ * ★ 路径直传模式：前端只传路径 + 元数据，由后端读盘上传，
+ * 消灭 read_file_bytes → File → base64 → 回传的多段跨界。
+ * 仅适用于本地绝对路径（拖拽/文件选择）；剪贴板等无路径来源走 uploadAttachment。
+ */
+export interface UploadAttachmentByPathParams {
+  /** 本地文件绝对路径 */
+  path: string;
+  /** 文件名（可选，缺省由后端取路径末段） */
+  name?: string;
+  mimeType: string;
+  type?: 'image' | 'file';
+  folderId?: string;
+}
+
+/**
  * 附件上传结果
  */
 export interface UploadAttachmentResult {
@@ -664,6 +681,41 @@ export async function uploadAttachment(
   return result;
 }
 
+/**
+ * 按本地绝对路径上传附件到 VFS
+ *
+ * ★ 拖拽/文件选择链路的直传 API：
+ * - 前端不读取、不传输文件字节/base64，后端 fs::read 后走与
+ *   vfs_upload_attachment 完全相同的存储路径（去重/blob/索引/流水线）
+ * - 返回结构与 uploadAttachment 完全一致
+ *
+ * @param params 路径 + 元数据
+ * @returns 上传结果（包含 sourceId 和 resourceHash）
+ */
+export async function uploadAttachmentByPath(
+  params: UploadAttachmentByPathParams
+): Promise<UploadAttachmentResult> {
+  console.log(LOG_PREFIX, 'uploadAttachmentByPath:', params.path, params.mimeType, 'folderId:', params.folderId);
+
+  const result = await invoke<UploadAttachmentResult>('vfs_upload_attachment_by_path', {
+    params: {
+      path: params.path,
+      name: params.name,
+      mimeType: params.mimeType,
+      attachmentType: params.type,
+      folderId: params.folderId,
+    },
+  });
+
+  console.log(
+    LOG_PREFIX,
+    result.isNew ? 'Uploaded new attachment (by path):' : 'Reused existing attachment (by path):',
+    result.sourceId
+  );
+
+  return result;
+}
+
 export const vfsRefApi = {
   // Result 版本（主要 API）
   getResourceRefsV2,
@@ -676,6 +728,7 @@ export const vfsRefApi = {
   resolveResourceRefsBatch,
   createSingleResourceRefData,
   uploadAttachment,
+  uploadAttachmentByPath,
   // 去重和通知辅助函数
   isDuplicateResourceRef,
   deduplicateResourceRefs,

@@ -4,6 +4,7 @@
 //!
 //! ## 命令
 //! - `vfs_upload_attachment`: 上传附件
+//! - `vfs_upload_attachment_by_path`: 按本地绝对路径上传附件（后端直接读盘，前端无需传输字节/base64）
 //! - `vfs_get_attachment_config`: 获取附件配置
 //! - `vfs_set_attachment_root_folder`: 设置附件根文件夹
 //! - `vfs_create_attachment_root_folder`: 创建附件根文件夹
@@ -44,6 +45,63 @@ pub struct VfsUploadAttachmentParamsExt {
     pub attachment_type: Option<String>,
     #[serde(default)]
     pub folder_id: Option<String>,
+}
+
+/// 按本地路径上传附件的参数
+///
+/// 用于前端已有本地绝对路径（拖拽/文件选择）的场景：
+/// 前端只传路径 + 元数据，由后端 `fs::read` 后走与 `vfs_upload_attachment`
+/// 完全相同的存储路径，避免 read_file_bytes → File → base64 → 回传的多段跨界。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VfsUploadAttachmentByPathParams {
+    /// 本地文件绝对路径
+    pub path: String,
+    /// 文件名（可选，缺省取路径末段）
+    #[serde(default)]
+    pub name: Option<String>,
+    /// MIME 类型（可选，缺省按扩展名推断，最终兜底 application/octet-stream）
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub attachment_type: Option<String>,
+    #[serde(default)]
+    pub folder_id: Option<String>,
+}
+
+/// 按扩展名推断 MIME 类型（兜底 application/octet-stream）
+///
+/// 仅作为前端未传 mime_type 时的防御性回退；
+/// 前端调用方（vfsRefApi.uploadAttachmentByPath）总是传 mimeType。
+fn infer_mime_from_path(path: &std::path::Path) -> String {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "html" | "htm" => "text/html",
+        "epub" => "application/epub+zip",
+        "rtf" => "application/rtf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,11 +155,7 @@ pub async fn vfs_upload_attachment(
         Some(ref id) if !id.is_empty() => Some(id.clone()),
         _ => {
             let config = AttachmentConfig::new(vfs_db.inner().clone());
-            Some(
-                config
-                    .get_or_create_root_folder()
-                    ?,
-            )
+            Some(config.get_or_create_root_folder()?)
         }
     };
 
@@ -289,6 +343,77 @@ pub async fn vfs_upload_attachment(
     })
 }
 
+/// 按本地绝对路径上传附件
+///
+/// 与 `vfs_upload_attachment` 的区别仅在入参：内容不在前端读取/传输，
+/// 而是由后端 `fs::read` 读盘后委托给 `vfs_upload_attachment` 处理，
+/// 因此写门检查、去重、存储路径、Units 同步、PDF/图片流水线与返回结构完全一致。
+///
+/// 适用场景：拖拽 / 文件选择已给出本地绝对路径的附件上传；
+/// 剪贴板粘贴等无路径来源仍走 `vfs_upload_attachment`（base64）。
+#[tauri::command]
+pub async fn vfs_upload_attachment_by_path(
+    app_handle: tauri::AppHandle,
+    params: VfsUploadAttachmentByPathParams,
+    vfs_db: State<'_, Arc<VfsDatabase>>,
+    pdf_processing_service: State<'_, Arc<PdfProcessingService>>,
+) -> VfsResult<VfsUploadAttachmentResult> {
+    let path_str = params.path.trim().to_string();
+    if path_str.is_empty() {
+        return Err(VfsError::Other(
+            "vfs_upload_attachment_by_path: path is empty".to_string(),
+        ));
+    }
+    let path_buf = std::path::PathBuf::from(&path_str);
+
+    let name = match params.name {
+        Some(ref n) if !n.trim().is_empty() => n.clone(),
+        _ => path_buf
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unnamed".to_string()),
+    };
+
+    let mime_type = params
+        .mime_type
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| infer_mime_from_path(&path_buf));
+
+    log::info!(
+        "[VFS::handlers] vfs_upload_attachment_by_path: path={}, name={}, mime_type={}, folder_id={:?}",
+        path_str,
+        name,
+        mime_type,
+        params.folder_id
+    );
+
+    // 阻塞的文件读取 + base64 编码移出 async 工作线程
+    let read_path = path_buf.clone();
+    let base64_content =
+        tauri::async_runtime::spawn_blocking(move || -> std::io::Result<String> {
+            let data = std::fs::read(&read_path)?;
+            Ok(STANDARD.encode(&data))
+        })
+        .await
+        .map_err(|e| VfsError::Other(format!("vfs_upload_attachment_by_path join error: {}", e)))?
+        .map_err(|e| VfsError::Io(format!("读取文件失败 {}: {}", path_str, e)))?;
+
+    // 委托给现有上传命令：存储路径 / 写门 / 流水线 / 返回结构完全一致
+    vfs_upload_attachment(
+        app_handle,
+        VfsUploadAttachmentParamsExt {
+            name,
+            mime_type,
+            base64_content,
+            attachment_type: params.attachment_type,
+            folder_id: params.folder_id,
+        },
+        vfs_db,
+        pdf_processing_service,
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn vfs_get_attachment_config(
     vfs_db: State<'_, Arc<VfsDatabase>>,
@@ -316,8 +441,7 @@ pub async fn vfs_set_attachment_root_folder(
     }
 
     let config = AttachmentConfig::new(vfs_db.inner().clone());
-    config
-        .set_root_folder_id(&folder_id)
+    config.set_root_folder_id(&folder_id)
 }
 
 #[tauri::command]
@@ -340,8 +464,7 @@ pub async fn vfs_get_or_create_attachment_root_folder(
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
     crate::vfs::write_gate::check_vfs_write_gate(&app_handle.state::<crate::commands::AppState>())?;
     let config = AttachmentConfig::new(vfs_db.inner().clone());
-    config
-        .get_or_create_root_folder()
+    config.get_or_create_root_folder()
 }
 
 /// 获取附件内容（Base64 编码）
@@ -374,7 +497,10 @@ pub async fn vfs_get_attachment_content(
             "[VFS::handlers] Invalid attachment ID format: {}",
             attachment_id
         );
-        return Err(VfsError::Other(format!("Invalid attachment ID format: {}", attachment_id)));
+        return Err(VfsError::Other(format!(
+            "Invalid attachment ID format: {}",
+            attachment_id
+        )));
     }
 
     // ★ img_ 前缀：DOCX VLM 直提路径产生的图片 ID，blob hash 存在 questions.images_json 中
@@ -544,7 +670,10 @@ pub async fn vfs_get_attachment(
     log::debug!("[VFS::handlers] vfs_get_attachment: id={}", attachment_id);
 
     if !attachment_id.starts_with("att_") && !attachment_id.starts_with("file_") {
-        return Err(VfsError::Other(format!("Invalid attachment ID format: {}", attachment_id)));
+        return Err(VfsError::Other(format!(
+            "Invalid attachment ID format: {}",
+            attachment_id
+        )));
     }
 
     Ok(VfsAttachmentRepo::get_by_id(&vfs_db, &attachment_id)?)
@@ -568,8 +697,14 @@ pub async fn vfs_delete_attachment(
     );
 
     if !attachment_id.starts_with("att_") {
-        return Err(VfsError::Other(format!("Invalid attachment ID format: {}", attachment_id)));
+        return Err(VfsError::Other(format!(
+            "Invalid attachment ID format: {}",
+            attachment_id
+        )));
     }
 
-    Ok(VfsAttachmentRepo::delete_attachment(&vfs_db, &attachment_id)?)
+    Ok(VfsAttachmentRepo::delete_attachment(
+        &vfs_db,
+        &attachment_id,
+    )?)
 }

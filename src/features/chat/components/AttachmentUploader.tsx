@@ -30,6 +30,7 @@ import { resourceStoreApi, type ContextRef } from '../resources';
 import { IMAGE_TYPE_ID } from '../context/definitions/image';
 import { FILE_TYPE_ID } from '../context/definitions/file';
 import { getErrorMessage } from '@/utils/errorUtils';
+import { getNativeSourcePath } from '@/utils/fileManager';
 import { vfsRefApi } from '../context/vfsRefApi';
 import { logAttachment } from '../debug/chatV2Logger';
 import { useTauriDragAndDrop } from '@/hooks/useTauriDragAndDrop';
@@ -244,13 +245,24 @@ export const AttachmentUploader: React.FC<AttachmentUploaderProps> = ({
               typeId,
             });
 
-            const uploadResult = await vfsRefApi.uploadAttachment({
-              name: attachment.name,
-              mimeType: attachment.mimeType,
-              base64Content: attachment.previewUrl || '',
-              type: isImage ? 'image' : 'file',
-              folderId: targetFolderId,
-            });
+            // ★ 按路径直传：拖拽链路的 File 携带本地绝对路径时，后端直接读盘上传，
+            //   跳过 base64 编码与 IPC 回传（previewUrl 仍仅用于 UI 预览）
+            const sourcePath = getNativeSourcePath(file);
+            const uploadResult = sourcePath
+              ? await vfsRefApi.uploadAttachmentByPath({
+                  path: sourcePath,
+                  name: attachment.name,
+                  mimeType: attachment.mimeType,
+                  type: isImage ? 'image' : 'file',
+                  folderId: targetFolderId,
+                })
+              : await vfsRefApi.uploadAttachment({
+                  name: attachment.name,
+                  mimeType: attachment.mimeType,
+                  base64Content: attachment.previewUrl || '',
+                  type: isImage ? 'image' : 'file',
+                  folderId: targetFolderId,
+                });
 
             logAttachment('ui', 'vfs_upload_done', {
               sourceId: uploadResult.sourceId,

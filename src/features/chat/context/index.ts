@@ -84,9 +84,10 @@ export {
   updatePathCacheV2,
   createSingleResourceRefData,
   uploadAttachment,
+  uploadAttachmentByPath,
   vfsRefApi,
 } from './vfsRefApi';
-export type { VfsRefApiType } from './vfsRefApi';
+export type { VfsRefApiType, UploadAttachmentParams, UploadAttachmentByPathParams, UploadAttachmentResult } from './vfsRefApi';
 
 // VFS Blob API（文档 25）
 export {

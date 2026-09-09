@@ -55,6 +55,7 @@ import { useTauriDragAndDrop } from '@/hooks/useTauriDragAndDrop';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { useSystemStatusStore } from '@/stores/systemStatusStore';
 import { getErrorMessage } from '@/utils/errorUtils';
+import { getNativeSourcePath } from '@/utils/fileManager';
 import { cancelPdfProcessing, getBatchPdfProcessingStatus, retryPdfProcessing } from '@/api/vfsPdfProcessingApi';
 import type { InputBarUIProps } from './types';
 import type { ContextWindowUsage } from './contextWindowUsage';
@@ -626,7 +627,7 @@ export const InputBarUI: React.FC<InputBarUIProps> = ({
     // 否则使用内部逻辑创建附件元数据
     // 🔧 P0修复：使用 FileReader 读取文件内容，设置 previewUrl
     // 🔧 P2优化：使用 updateAttachment 原地更新，避免闪烁
-    filesToProcess.forEach((file) => {
+    filesToProcess.forEach(async (file) => {
       const fileExt = getFileExtension(file.name);
       const isImage = file.type.startsWith('image/') || ATTACHMENT_IMAGE_EXTENSIONS.includes(fileExt);
       const attachmentId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -703,16 +704,13 @@ export const InputBarUI: React.FC<InputBarUIProps> = ({
           }
         }
       };
-      reader.onload = async () => {
-        const base64Result = reader.result as string;
+      // ★ 按路径直传：拖拽链路的 File 携带本地绝对路径（File.path 约定）时，
+      //   跳过 FileReader → base64，由后端直接读盘上传，
+      //   消灭 read_file_bytes → File → base64 → 回传的多段跨界
+      const sourcePath = getNativeSourcePath(file);
 
-        logAttachment('ui', 'file_read_complete', {
-          fileName: file.name,
-          attachmentId,
-          isImage,
-          size: file.size,
-        });
-
+      // VFS 上传 + 引用创建主流程（base64Content 为 null 时走按路径直传）
+      const runVfsUpload = async (base64Content: string | null): Promise<void> => {
         // ★ VFS 引用模式：上传到 VFS 并创建 ContextRef
         try {
           const typeId = isImage ? IMAGE_TYPE_ID : FILE_TYPE_ID;
@@ -728,13 +726,20 @@ export const InputBarUI: React.FC<InputBarUIProps> = ({
             uploadStage: 'uploading',
           });
 
-          // 1. 上传到 VFS
-          const uploadResult = await vfsRefApi.uploadAttachment({
-            name: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            base64Content: base64Result,
-            type: isImage ? 'image' : 'file',
-          });
+          // 1. 上传到 VFS（★ 有本地路径时按路径直传，内容不经过前端）
+          const uploadResult = sourcePath
+            ? await vfsRefApi.uploadAttachmentByPath({
+                path: sourcePath,
+                name: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                type: isImage ? 'image' : 'file',
+              })
+            : await vfsRefApi.uploadAttachment({
+                name: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                base64Content: base64Content ?? '',
+                type: isImage ? 'image' : 'file',
+              });
 
           logAttachment('ui', 'vfs_upload_done', {
             sourceId: uploadResult.sourceId,
@@ -931,22 +936,41 @@ export const InputBarUI: React.FC<InputBarUIProps> = ({
           console.error('[InputBarUI] VFS upload failed:', errorDetail);
         }
       };
-      reader.onerror = () => {
-        // 🔧 释放 Blob URL，文件读取失败时不再需要预览
-        URL.revokeObjectURL(blobPreviewUrl);
-        console.error('[InputBarUI] Failed to read file:', file.name);
-        logAttachment('ui', 'file_read_error', {
-          fileName: file.name,
-          attachmentId,
-        }, 'error');
+
+      if (sourcePath) {
+        // 路径直传：无本地读取阶段，直接进入 VFS 上传（预览仍用 blobPreviewUrl）
         onUpdateAttachment(attachmentId, {
-          status: 'error',
-          error: t('analysis:input_bar.attachments.load_failed'),
-          uploadProgress: undefined,
-          uploadStage: undefined,
+          uploadProgress: 20,
+          uploadStage: 'uploading',
         });
-      };
-      reader.readAsDataURL(file);
+        await runVfsUpload(null);
+      } else {
+        reader.onload = async () => {
+          logAttachment('ui', 'file_read_complete', {
+            fileName: file.name,
+            attachmentId,
+            isImage,
+            size: file.size,
+          });
+          await runVfsUpload(reader.result as string);
+        };
+        reader.onerror = () => {
+          // 🔧 释放 Blob URL，文件读取失败时不再需要预览
+          URL.revokeObjectURL(blobPreviewUrl);
+          console.error('[InputBarUI] Failed to read file:', file.name);
+          logAttachment('ui', 'file_read_error', {
+            fileName: file.name,
+            attachmentId,
+          }, 'error');
+          onUpdateAttachment(attachmentId, {
+            status: 'error',
+            error: t('analysis:input_bar.attachments.load_failed'),
+            uploadProgress: undefined,
+            uploadStage: undefined,
+          });
+        };
+        reader.readAsDataURL(file);
+      }
     });
 
   }, [onFilesUpload, onAddAttachment, onUpdateAttachment, onContextRefCreated, attachments.length, t]);
