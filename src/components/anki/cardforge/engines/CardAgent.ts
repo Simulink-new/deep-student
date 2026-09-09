@@ -27,6 +27,7 @@ import {
   buildCardGenerationUserPrompt,
 } from '../prompts';
 import { normalizeToolExportCards } from './exportNormalize';
+import { estimateTokenCount } from '@/features/chat/utils/tokenUtils';
 import type {
   GenerateCardsInput,
   GenerateCardsOutput,
@@ -1497,24 +1498,9 @@ export class CardAgent {
    * 估算 token 数
    */
   private estimateTokens(text: string): number {
-    // 安全检查：防止 text 为 undefined 或 null
-    if (!text) {
-      return 0;
-    }
-    let tokens = 0;
-    for (const char of text) {
-      const code = char.charCodeAt(0);
-      if (code >= 0x4e00 && code <= 0x9fff) {
-        // 中文字符
-        tokens += 1;
-      } else if (code >= 0x0020 && code <= 0x007f) {
-        // ASCII 字符
-        tokens += 0.25; // 约 4 个字符一个 token
-      } else {
-        tokens += 0.5;
-      }
-    }
-    return Math.ceil(tokens);
+    // 🔧 P1 双实现收敛：委托前端唯一权威实现（与后端 token_budget.rs 同公式），
+    // 废弃本地逐字符 1.0/0.25/0.5 启发式。
+    return estimateTokenCount(text);
   }
 
   // =========================================================================

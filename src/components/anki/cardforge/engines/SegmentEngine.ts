@@ -12,6 +12,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { estimateTokenCount } from '@/features/chat/utils/tokenUtils';
 import type {
   SegmentConfig,
   DEFAULT_SEGMENT_CONFIG,
@@ -455,21 +456,10 @@ ${request.afterContext}
    * @returns 估算的 token 数
    */
   private estimateTokens(text: string): number {
-    let totalTokens = 0;
-
-    // 正则：匹配英文单词
-    const wordRegex = /[a-zA-Z]+/g;
-    const words = text.match(wordRegex) || [];
-    totalTokens += words.length * 1.3;
-
-    // 移除英文单词后，剩余的字符
-    const remainingText = text.replace(wordRegex, '');
-
-    for (const char of remainingText) {
-      totalTokens += this.estimateCharTokens(char);
-    }
-
-    return Math.ceil(totalTokens);
+    // 🔧 P1 双实现收敛：委托前端唯一权威实现（与后端 token_budget.rs 同公式），
+    // 废弃本地"英文词×1.3+逐字符"启发式。estimateCharTokens 仍被
+    // 单字符场景(:190)使用，故保留。
+    return estimateTokenCount(text);
   }
 
   /**

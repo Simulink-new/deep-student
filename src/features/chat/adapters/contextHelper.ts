@@ -18,6 +18,7 @@ import i18n from 'i18next';
 import { getErrorMessage } from '@/utils/errorUtils';
 import { debugLog } from '@/debug-panel/debugMasterSwitch';
 import { pMap } from '@/utils/concurrency';
+import { estimateTokenCount } from '../utils/tokenUtils';
 import { contextTypeRegistry } from '../context/registry';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { isErr } from '@/shared/result';
@@ -818,25 +819,9 @@ export function collectContextTypeHints(contextRefs: ContextRef[]): string[] {
  * @returns 估算的 token 数量
  */
 function estimateTokensForText(text: string): number {
-  if (!text || text.length === 0) {
-    return 0;
-  }
-
-  // 使用展开运算符获取真实字符数（正确处理 emoji 等代理对）
-  const chars = [...text];
-  const realLength = chars.length;
-
-  // 检测中文字符数量（包括中文标点符号）
-  const chineseChars = (text.match(/[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef]/g) || []).length;
-  const chineseRatio = realLength > 0 ? chineseChars / realLength : 0;
-
-  // 根据中文占比动态调整估算比率（与后端 token_budget.rs 对齐）
-  // - 纯中文：~1.0 字符/token（cl100k_base/o200k_base 中常用汉字多为单 token）
-  // - 纯英文：~4 字符/token
-  // - 混合文本：线性插值
-  const avgCharsPerToken = chineseRatio * 1.0 + (1 - chineseRatio) * 4;
-
-  return Math.ceil(realLength / avgCharsPerToken);
+  // 🔧 P1 双实现收敛：委托前端唯一权威实现（逐字符权重与后端
+  // token_budget.rs estimate_tokens 同公式），废弃本地的中英比例插值启发式。
+  return estimateTokenCount(text);
 }
 
 /**
