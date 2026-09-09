@@ -50,23 +50,19 @@ pub struct TranslationResponse {
 }
 
 /// SSE 事件负载 - 增量数据
+///
+/// ★ 增量协议（2026-09）：只携带本次新增文本 `delta`，不再携带全量
+/// `accumulated`/`char_count`/`word_count`（避免 O(n²) 传输）。
+/// 前端流中自行拼接 delta 并统计字数；权威全量以 complete/error/cancelled
+/// 事件携带的内容为准。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslationStreamData {
     /// 事件类型
     #[serde(rename = "type")]
     pub event_type: String, // "data"
 
-    /// 本次增量内容
-    pub chunk: String,
-
-    /// 累积内容
-    pub accumulated: String,
-
-    /// 当前字符数
-    pub char_count: usize,
-
-    /// 估算的单词数
-    pub word_count: usize,
+    /// 本次增量内容（仅新增文本）
+    pub delta: String,
 }
 
 /// SSE 事件负载 - 完成
@@ -95,6 +91,9 @@ pub struct TranslationStreamError {
 
     /// 错误消息
     pub message: String,
+
+    /// 截止错误发生时的全量内容（权威值，前端整体替换，兜底丢包/错序）
+    pub accumulated: String,
 }
 
 /// SSE 事件负载 - 取消
@@ -103,4 +102,7 @@ pub struct TranslationStreamCancelled {
     /// 事件类型
     #[serde(rename = "type")]
     pub event_type: String, // "cancelled"
+
+    /// 截止取消时的全量内容（权威值，前端整体替换，兜底丢包/错序）
+    pub accumulated: String,
 }

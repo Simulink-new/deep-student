@@ -64,14 +64,14 @@ pub async fn run_translation(
         deps.llm.clone(),
         |chunk| {
             accumulated.push_str(&chunk);
-            deps.emitter
-                .emit_data(&request.session_id, chunk, accumulated.clone());
+            deps.emitter.emit_data(&request.session_id, chunk);
         },
     )
     .await?;
 
     if matches!(stream_status, StreamStatus::Cancelled) {
-        deps.emitter.emit_cancelled(&request.session_id);
+        deps.emitter
+            .emit_cancelled(&request.session_id, accumulated.clone());
         return Ok(None);
     }
 

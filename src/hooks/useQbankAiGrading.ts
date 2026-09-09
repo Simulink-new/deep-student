@@ -36,10 +36,16 @@ export interface QbankGradingState {
   streamSessionId?: string;
 }
 
+/**
+ * ★ 增量协议（2026-09）：data 事件只携带本次新增文本 `delta`（后端不再
+ * 发送全量 accumulated，避免 O(n²) 传输），前端流中自行拼接；
+ * complete/error/cancelled 事件携带权威全量内容，前端整体替换兜底丢包/错序。
+ */
 interface QbankGradingStreamEvent {
   type: 'data' | 'complete' | 'error' | 'cancelled';
-  // data
-  chunk?: string;
+  /** data: 本次增量文本（仅新增部分） */
+  delta?: string;
+  /** error / cancelled: 截止当时的全量内容（权威值） */
   accumulated?: string;
   // complete
   submission_id?: string;
@@ -184,7 +190,7 @@ export function useQbankAiGrading() {
             if (payload.type === 'data') {
               setState((prev) => ({
                 ...prev,
-                feedback: payload.accumulated || prev.feedback,
+                feedback: prev.feedback + (payload.delta ?? ''),
               }));
             }
 
@@ -211,6 +217,8 @@ export function useQbankAiGrading() {
               setState((prev) => ({
                 ...prev,
                 isGrading: false,
+                // ★ 增量协议：error 事件携带权威全量，整体替换兜底
+                feedback: payload.accumulated ?? prev.feedback,
                 error: payload.message || '评判失败',
               }));
               isActiveRef.current = false;
@@ -223,6 +231,8 @@ export function useQbankAiGrading() {
               setState((prev) => ({
                 ...prev,
                 isGrading: false,
+                // ★ 增量协议：cancelled 事件携带权威全量，整体替换兜底
+                feedback: payload.accumulated ?? prev.feedback,
               }));
               isActiveRef.current = false;
               currentStreamSessionIdRef.current = null;

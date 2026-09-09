@@ -82,8 +82,11 @@ pub async fn run_qbank_grading(
         Some(sub) => sub,
         None => {
             let err = AppError::not_found(format!("作答记录不存在: {}", request.submission_id));
-            deps.emitter
-                .emit_error(&request.stream_session_id, err.message.clone());
+            deps.emitter.emit_error(
+                &request.stream_session_id,
+                err.message.clone(),
+                String::new(),
+            );
             return Err(err);
         }
     };
@@ -92,8 +95,11 @@ pub async fn run_qbank_grading(
             "作答记录 {} 不属于题目 {}",
             request.submission_id, request.question_id
         ));
-        deps.emitter
-            .emit_error(&request.stream_session_id, err.message.clone());
+        deps.emitter.emit_error(
+            &request.stream_session_id,
+            err.message.clone(),
+            String::new(),
+        );
         return Err(err);
     }
 
@@ -162,22 +168,25 @@ pub async fn run_qbank_grading(
         deps.llm.clone(),
         |chunk| {
             accumulated.push_str(&chunk);
-            deps.emitter
-                .emit_data(&request.stream_session_id, chunk, accumulated.clone());
+            deps.emitter.emit_data(&request.stream_session_id, chunk);
         },
     )
     .await
     {
         Ok(status) => status,
         Err(e) => {
-            deps.emitter
-                .emit_error(&request.stream_session_id, e.message.clone());
+            deps.emitter.emit_error(
+                &request.stream_session_id,
+                e.message.clone(),
+                accumulated.clone(),
+            );
             return Err(e);
         }
     };
 
     if matches!(stream_status, StreamStatus::Cancelled) {
-        deps.emitter.emit_cancelled(&request.stream_session_id);
+        deps.emitter
+            .emit_cancelled(&request.stream_session_id, accumulated.clone());
         return Ok(None);
     }
 
@@ -189,15 +198,19 @@ pub async fn run_qbank_grading(
         let err = AppError::llm(
             "AI 评判流式响应异常中断，结果不完整。请检查网络连接后重试。".to_string(),
         );
-        deps.emitter
-            .emit_error(&request.stream_session_id, err.message.clone());
+        deps.emitter.emit_error(
+            &request.stream_session_id,
+            err.message.clone(),
+            accumulated.clone(),
+        );
         return Err(err);
     }
 
     // S-014: 二次检查取消状态
     if deps.llm.consume_pending_cancel(&stream_event).await {
         log::info!("[QbankGrading] 流完成后发现已取消，丢弃结果");
-        deps.emitter.emit_cancelled(&request.stream_session_id);
+        deps.emitter
+            .emit_cancelled(&request.stream_session_id, accumulated.clone());
         return Ok(None);
     }
 
@@ -212,8 +225,11 @@ pub async fn run_qbank_grading(
         let err = AppError::llm(
             "AI 评判结果缺少有效 verdict 标签（需为 correct|partial|incorrect）。".to_string(),
         );
-        deps.emitter
-            .emit_error(&request.stream_session_id, err.message.clone());
+        deps.emitter.emit_error(
+            &request.stream_session_id,
+            err.message.clone(),
+            accumulated.clone(),
+        );
         return Err(err);
     }
 
@@ -222,16 +238,22 @@ pub async fn run_qbank_grading(
         Ok(c) => c,
         Err(e) => {
             let err = AppError::database(format!("获取数据库连接失败: {}", e));
-            deps.emitter
-                .emit_error(&request.stream_session_id, err.message.clone());
+            deps.emitter.emit_error(
+                &request.stream_session_id,
+                err.message.clone(),
+                accumulated.clone(),
+            );
             return Err(err);
         }
     };
 
     if let Err(e) = conn.execute("SAVEPOINT qbank_grading_persist", []) {
         let err = AppError::database(format!("创建 SAVEPOINT 失败: {}", e));
-        deps.emitter
-            .emit_error(&request.stream_session_id, err.message.clone());
+        deps.emitter.emit_error(
+            &request.stream_session_id,
+            err.message.clone(),
+            accumulated.clone(),
+        );
         return Err(err);
     }
 
@@ -311,8 +333,11 @@ pub async fn run_qbank_grading(
     if let Err(e) = persist_result {
         let _ = conn.execute("ROLLBACK TO qbank_grading_persist", []);
         let _ = conn.execute("RELEASE qbank_grading_persist", []);
-        deps.emitter
-            .emit_error(&request.stream_session_id, e.message.clone());
+        deps.emitter.emit_error(
+            &request.stream_session_id,
+            e.message.clone(),
+            accumulated.clone(),
+        );
         return Err(e);
     }
 

@@ -48,13 +48,17 @@ export interface TranslationStreamState {
 
 /**
  * SSE 事件负载类型
+ *
+ * ★ 增量协议（2026-09）：data 事件只携带本次新增文本 `delta`（后端不再
+ * 发送全量 accumulated 及派生计数，避免 O(n²) 传输），前端流中自行拼接与计数；
+ * complete/error/cancelled 事件携带权威全量内容，前端整体替换兜底丢包/错序。
  */
 interface TranslationStreamEvent {
   type: 'data' | 'complete' | 'error' | 'cancelled';
-  chunk?: string;
+  /** data: 本次增量文本（仅新增部分） */
+  delta?: string;
+  /** error / cancelled: 截止当时的全量内容（权威值） */
   accumulated?: string;
-  char_count?: number;
-  word_count?: number;
   id?: string;
   translated_text?: string;
   created_at?: string;
@@ -181,12 +185,15 @@ export function useTranslationStream() {
                 }
               }, TRANSLATION_TIMEOUT_MS);
 
-              setState((prev) => ({
-                ...prev,
-                translatedText: payload.accumulated || prev.translatedText,
-                charCount: payload.char_count ?? prev.charCount,
-                wordCount: payload.word_count ?? prev.wordCount,
-              }));
+              setState((prev) => {
+                const next = prev.translatedText + (payload.delta ?? '');
+                return {
+                  ...prev,
+                  translatedText: next,
+                  charCount: next.length,
+                  wordCount: next.trim() ? next.trim().split(/\s+/).length : 0,
+                };
+              });
               return;
             }
 
@@ -211,23 +218,37 @@ export function useTranslationStream() {
 
             if (payload.type === 'error') {
               const message = payload.message || 'Unknown error';
-              setState((prev) => ({
-                ...prev,
-                isTranslating: false,
-                error: message,
-                sessionId: null,
-              }));
+              setState((prev) => {
+                // ★ 增量协议：error 事件携带权威全量，整体替换兜底
+                const authoritative = payload.accumulated ?? prev.translatedText;
+                return {
+                  ...prev,
+                  isTranslating: false,
+                  error: message,
+                  translatedText: authoritative,
+                  charCount: authoritative.length,
+                  wordCount: authoritative.trim() ? authoritative.trim().split(/\s+/).length : 0,
+                  sessionId: null,
+                };
+              });
               cleanup();
               fail(new Error(message));
               return;
             }
 
             if (payload.type === 'cancelled') {
-              setState((prev) => ({
-                ...prev,
-                isTranslating: false,
-                sessionId: null,
-              }));
+              setState((prev) => {
+                // ★ 增量协议：cancelled 事件携带权威全量，整体替换兜底
+                const authoritative = payload.accumulated ?? prev.translatedText;
+                return {
+                  ...prev,
+                  isTranslating: false,
+                  translatedText: authoritative,
+                  charCount: authoritative.length,
+                  wordCount: authoritative.trim() ? authoritative.trim().split(/\s+/).length : 0,
+                  sessionId: null,
+                };
+              });
               cleanup();
               settle('cancelled');
             }

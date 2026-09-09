@@ -78,12 +78,16 @@ impl Verdict {
 // ============================================================================
 
 /// SSE 事件 - 增量数据
+///
+/// ★ 增量协议（2026-09）：只携带本次新增文本 `delta`，不再携带全量
+/// `accumulated`（避免 O(n²) 传输）。前端流中自行拼接 delta；
+/// 权威全量以 complete/error/cancelled 事件携带的内容为准。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QbankGradingStreamData {
     #[serde(rename = "type")]
     pub event_type: String, // "data"
-    pub chunk: String,
-    pub accumulated: String,
+    /// 本次增量内容（仅新增文本）
+    pub delta: String,
 }
 
 /// SSE 事件 - 完成
@@ -103,6 +107,8 @@ pub struct QbankGradingStreamError {
     #[serde(rename = "type")]
     pub event_type: String, // "error"
     pub message: String,
+    /// 截止错误发生时的全量内容（权威值，前端整体替换，兜底丢包/错序）
+    pub accumulated: String,
 }
 
 /// SSE 事件 - 取消
@@ -110,6 +116,8 @@ pub struct QbankGradingStreamError {
 pub struct QbankGradingStreamCancelled {
     #[serde(rename = "type")]
     pub event_type: String, // "cancelled"
+    /// 截止取消时的全量内容（权威值，前端整体替换，兜底丢包/错序）
+    pub accumulated: String,
 }
 
 // ============================================================================

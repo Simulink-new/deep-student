@@ -17,16 +17,15 @@ impl GradingEventEmitter {
     }
 
     /// 发送增量数据事件
-    pub fn emit_data(&self, stream_session_id: &str, chunk: String, accumulated: String) {
+    ///
+    /// ★ 增量协议（2026-09）：负载只含本次新增文本 `delta`，
+    /// 不再携带全量 accumulated（避免 O(n²) 传输）。
+    pub fn emit_data(&self, stream_session_id: &str, delta: String) {
         let event_name = format!("essay_grading_stream_{}", stream_session_id);
-
-        let char_count = accumulated.chars().count();
 
         let payload = GradingStreamData {
             event_type: "data".to_string(),
-            chunk,
-            accumulated,
-            char_count,
+            delta,
         };
 
         if let Err(e) = self.window.emit(&event_name, payload) {
@@ -60,11 +59,14 @@ impl GradingEventEmitter {
     }
 
     /// 发送错误事件
-    pub fn emit_error(&self, stream_session_id: &str, message: String) {
+    ///
+    /// `accumulated`: 截止错误发生时的全量内容（权威值）
+    pub fn emit_error(&self, stream_session_id: &str, message: String, accumulated: String) {
         let event_name = format!("essay_grading_stream_{}", stream_session_id);
         let payload = GradingStreamError {
             event_type: "error".to_string(),
             message,
+            accumulated,
         };
 
         if let Err(e) = self.window.emit(&event_name, payload) {
@@ -73,10 +75,13 @@ impl GradingEventEmitter {
     }
 
     /// 发送取消事件
-    pub fn emit_cancelled(&self, stream_session_id: &str) {
+    ///
+    /// `accumulated`: 截止取消时的全量内容（权威值）
+    pub fn emit_cancelled(&self, stream_session_id: &str, accumulated: String) {
         let event_name = format!("essay_grading_stream_{}", stream_session_id);
         let payload = GradingStreamCancelled {
             event_type: "cancelled".to_string(),
+            accumulated,
         };
 
         if let Err(e) = self.window.emit(&event_name, payload) {

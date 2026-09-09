@@ -67,12 +67,17 @@ export interface GradingStreamState {
 
 /**
  * SSE 事件负载类型
+ *
+ * ★ 增量协议（2026-09）：data 事件只携带本次新增文本 `delta`（后端不再
+ * 发送全量 accumulated，避免 O(n²) 传输），前端流中自行拼接；
+ * complete/error/cancelled 事件携带权威全量内容，前端整体替换兜底丢包/错序。
  */
 interface GradingStreamEvent {
   type: 'data' | 'complete' | 'error' | 'cancelled';
-  chunk?: string;
+  /** data: 本次增量文本（仅新增部分） */
+  delta?: string;
+  /** error / cancelled: 截止当时的全量内容（权威值） */
   accumulated?: string;
-  char_count?: number;
   round_id?: string;
   grading_result?: string;
   overall_score?: number | null;
@@ -231,11 +236,14 @@ export function useEssayGradingStream() {
             if (payload.type === 'data') {
               // ★ 二轮修复：添加活跃状态检查，防止超时后收到延迟事件导致状态闪烁
               if (!isActiveRef.current || settledRef.current) return;
-              setState((prev) => ({
-                ...prev,
-                gradingResult: payload.accumulated || prev.gradingResult,
-                charCount: payload.char_count ?? prev.charCount,
-              }));
+              setState((prev) => {
+                const next = prev.gradingResult + (payload.delta ?? '');
+                return {
+                  ...prev,
+                  gradingResult: next,
+                  charCount: next.length,
+                };
+              });
               return;
             }
 
@@ -261,14 +269,20 @@ export function useEssayGradingStream() {
 
             if (payload.type === 'error') {
               const message = payload.message || 'Unknown error';
-              setState((prev) => ({
-                ...prev,
-                isGrading: false,
-                error: message,
-                streamSessionId: null,
-                canRetry: true, // 错误后允许重试
-                isPartialResult: prev.gradingResult.length > 0, // ★ M-048: 标记部分结果
-              }));
+              setState((prev) => {
+                // ★ 增量协议：error 事件携带权威全量，整体替换兜底
+                const authoritative = payload.accumulated ?? prev.gradingResult;
+                return {
+                  ...prev,
+                  isGrading: false,
+                  error: message,
+                  gradingResult: authoritative,
+                  charCount: authoritative.length,
+                  streamSessionId: null,
+                  canRetry: true, // 错误后允许重试
+                  isPartialResult: authoritative.length > 0, // ★ M-048: 标记部分结果
+                };
+              });
               cleanup();
               currentStreamSessionIdRef.current = null;
               fail(new Error(message));
@@ -276,11 +290,17 @@ export function useEssayGradingStream() {
             }
 
             if (payload.type === 'cancelled') {
-              setState((prev) => ({
-                ...prev,
-                isGrading: false,
-                streamSessionId: null,
-              }));
+              setState((prev) => {
+                // ★ 增量协议：cancelled 事件携带权威全量，整体替换兜底
+                const authoritative = payload.accumulated ?? prev.gradingResult;
+                return {
+                  ...prev,
+                  isGrading: false,
+                  gradingResult: authoritative,
+                  charCount: authoritative.length,
+                  streamSessionId: null,
+                };
+              });
               cleanup();
               currentStreamSessionIdRef.current = null;
               settle('cancelled');

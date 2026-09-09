@@ -97,14 +97,14 @@ pub async fn run_grading(
         &topic_images,
         |chunk| {
             accumulated.push_str(&chunk);
-            deps.emitter
-                .emit_data(&request.stream_session_id, chunk, accumulated.clone());
+            deps.emitter.emit_data(&request.stream_session_id, chunk);
         },
     )
     .await?;
 
     if matches!(stream_status, StreamStatus::Cancelled) {
-        deps.emitter.emit_cancelled(&request.stream_session_id);
+        deps.emitter
+            .emit_cancelled(&request.stream_session_id, accumulated.clone());
         return Ok(None);
     }
 
@@ -124,7 +124,8 @@ pub async fn run_grading(
     // 信号会落入 cancel_registry（polling 备用通道），此处一次性消费即可捕获。
     if deps.llm.consume_pending_cancel(&stream_event).await {
         log::info!("[EssayGrading] 流完成后发现已取消，丢弃结果");
-        deps.emitter.emit_cancelled(&request.stream_session_id);
+        deps.emitter
+            .emit_cancelled(&request.stream_session_id, accumulated.clone());
         return Ok(None);
     }
 
