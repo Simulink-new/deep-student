@@ -150,6 +150,7 @@ fork 适配器是**编译进二进制的 Rust**:
 - **维护者/开发机**(即本机场景): 完全可行 — codegen → cargo check → probe → 人审 → 合并重编译
 - **终端用户安装包**: 自动生成的 Rust 适配器**无意义**(无工具链、无法重编译、签名破坏) — 终端用户永远走 T0 数据路径(运行时 model profile),这正是 fork 架构已支持的
 - 结论: ④定位为**维护者模式工作流加速器**,不是端用户功能;这也符合需求原文"调用本地的 claude code 等编程工具"的语义
+- (2026-09-10 补) 若采用 §5C 描述符化架构,本边界放松: 生成物为描述符 JSON 而非 Rust,审阅后端用户亦可导入
 
 ## 5A. 细化设计 (2026-09-10 00:15 CST): 搜索文档 → 模型写指导 → 委托编码
 
@@ -194,6 +195,47 @@ APP 启动
 6. **用户分层入口** — 横幅全员可见;"claude code 编码"仅工具链探测通过时出现(claude+cargo,复用 package_manager.rs 的 where/which 模式);端用户走 T0 数据路径(§5.5 编译边界)。
 
 **状态机**: `IDLE → SCANNING → (HAS_NEW → BANNER) → WORKSHOP(classify → T0: confirm-add / T1-T2: spec→codegen→verify) → PATCH_REVIEW → DONE`;`DISMISSED` 同指纹结果不重弹,出现新模型再弹。i18n 走新 locale 命名空间(如 `modelUpdates.json`,zh-CN/en-US 各一份)。
+
+## 5C. 可插拔适配器架构评估 (2026-09-10 00:57 CST): 描述符化,免编译接入
+
+**问题**: 适配路由能否做成不需编译、随时可插拔的组件? **结论**: 能。fork 离"全描述符化"比一般项目近 — 整形层本质已是数据(静态 OVERRIDES 常量+参数映射表),wire 层已收敛到 4 协议,vendor/model 定义本就是运行时数据。
+
+### 各层拔插化难度
+
+| 层 | 现状 | 难度 |
+|----|------|------|
+| vendor/model 定义 | settings 表运行时数据 | ✅ 已完成 |
+| 能力元数据 | JSON 但 include_str! 内嵌 | 🟢 改运行时加载,builtin 回退 |
+| 整形层 RequestAdapter(~15 家) | OVERRIDES 常量+映射表+开关+策略枚举 | 🟢 本质已是数据 |
+| wire 层 ProviderAdapter(4 协议) | build_request+parse_stream 硬编码 | 🟡 请求=模板可描述;流解析=路径映射覆盖~90%,少数语义(input_json_delta 累积/思维签名回传)需描述符语言有累积/透传规则 |
+
+### 目标架构
+
+```
+adapters/*.json 描述符(每 vendor 一份):
+  request(URL/headers/body 模板+槽位) / stream(SSE→StreamEvent 路径映射+累积规则)
+  / shaping(参数映射/采样豁免/回传策略) / quirks(合并现三份 JSON)
+加载链: include_str! builtin → app_data/adapters/*.json → DB 覆盖
+Rust 新增 DescriptorProviderAdapter 解释器(~一次性 1-2k 行);
+build_provider_adapter() 加 Descriptor 分支;ADAPTER_REGISTRY 数据驱动
+```
+
+原生 4 协议适配器**不删**,转 builtin(性能同今天);新协议以描述符到达。无法描述的协议语义(T2 罕见)第一阶段等 app 更新 — 不为此引入 rhai/WASM 脚本沙箱(留远期逃生口)。
+
+### 调整清单
+
+1. 描述符 schema(合并三份注册表+OVERRIDES+trait 行为,带 schema_version)
+2. 解释器层挂进 providers/mod.rs 与 adapters/mod.rs
+3. 加载链与优先级(复用 settings 表模式)
+4. 存量迁移: 15 家整形层→描述符(机械,每家 50-150 行 JSON);迁移期双轨+一致性对照
+5. 描述符 linter + 一致性探针(M2 probe harness 兼任 conformance suite)
+6. 前端 VendorConfigModal 加导入/编辑描述符(高级区)
+
+### 与自动适配流水线的协同(决定性)
+
+claude code 产出从"Rust 补丁(仅维护者可用)"变为"**描述符 JSON diff(人可审、端用户可导入)**" — §5.5 编译边界瓦解,M3 从维护者模式降为"审阅后导入",普通用户可安全接收。风险面从"编译执行任意 Rust"收缩为"导入字段映射数据";残余风险=描述符可把 base_url 指向恶意端点偷 key,缓解: base_url 变更显式确认/仅 https/默认只从应用目录加载。性能代价可忽略(路径映射 vs enum match 的差值远小于网络耗时)。
+
+**分期**: 先整形层描述符化(零风险数据搬家)→ 再 wire 层。成本: 解释器 1-2k 行一次性 + 15 家迁移机械活 + 双轨期一致性测试。
 
 ## 6. 风险清单
 
