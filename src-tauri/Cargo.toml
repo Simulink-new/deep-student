@@ -60,7 +60,9 @@ jsonschema = "0.42"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 url = "2.4"
 dirs = "4.0"
-image = "0.25"
+# 执行层审计 P1-c: 裁掉冷门解码器(exr/pnm/qoi/tga/dds/hdr/ff/avif)。
+# 实际格式面: 用户附件 png/jpeg/gif/webp/bmp + 桌面截图 tiff + pdfium 渲染 png。
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 zerocopy = "0.7"
 backon = "0.4"
 config = { version = "0.14", features = ["toml"] }
@@ -75,7 +77,9 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "rus
 moka = { version = "0.12", features = ["future"] }
 lru = "0.12"
 # 轻量级内置指标服务
-hyper = { version = "1", features = ["full"] }
+# 执行层审计 P1-c: metrics_server 只用 http1 serve(server::conn::http1+service_fn),
+# 裁掉 http2/h2 与 client 特性;axum 自带的 hyper 特性按需并入(union)。
+hyper = { version = "1", features = ["http1", "server", "runtime"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 # RAG文档处理依赖（PDF 文本提取已统一使用 pdfium-render，不再依赖 pdf-extract）
