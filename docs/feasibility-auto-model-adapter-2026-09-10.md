@@ -169,6 +169,32 @@ fork 适配器是**编译进二进制的 Rust**:
 - **注入面后移**: 风险从"供应商响应"变为"搜索结果 SEO 污染指向恶意页"。缓解不变: 模板化 spec + claude 工具白名单 + 人审闸门。
 - **失败兜底**: 搜索无结果/文档未发布 → 退回 §4.2 探测级签名分类;T0(约 90%)到不了编码这步,直接落数据条目。
 
+## 5B. 启动流程设计 (2026-09-10 00:29 CST): 新模型更新提示 → 适配工作台入口
+
+每次启动 APP,配置了基本搜索+模型 key 即可收到新模型更新提示,并可一键进入适配工作台自动写适配器。
+
+```
+APP 启动
+ → startup_gate 完成关键路径(迁移/预检,已有)
+ → 后台巡检(非阻塞 fire-and-forget, 24h TTL 缓存)
+     前提检查: ≥1 搜索 key + ≥1 模型 key
+     每个有 key 的 vendor → GET /models(免推理) → diff 基线快照
+ → 无新模型 → 静默结束
+ → 有新模型 → emit 事件 → 横幅 "检测到 2 家供应商 3 个新模型" [查看详情][进入适配工作台][本次忽略]
+ → 适配工作台: ①探测分类(T0 落数据条目) ②T1/T2 走 §5A 流水线 ③补丁人审
+```
+
+**设计决策:**
+
+1. **巡检永不阻塞启动** — startup_gate 只等关键路径;巡检后台跑 + Tauri 事件,横幅异步出现。
+2. **基线静默初始化** — 首扫只建基线不弹横幅(否则首次启动全列表报新)。存储 `model_scan.baseline.{vendor}` + `last_scan` TTL,settings 表。
+3. **降级矩阵** — 无网络静默跳过;无搜索 key 横幅照常(模型检测不需要搜索)、工作台文档步骤置灰;模型 key 401 该 vendor 跳过并附警示;无 claude CLI 工作台可进、codegen 置灰。
+4. **命名** — startup_gate 语境"维护模式"已指启动期迁移/维护阶段(4ccd2c121),新流程定名**适配工作台**避免歧义。
+5. **双人审门** — spec 审(默认暂停,有"本轮自动继续"开关)+ 补丁审(强制);进入时一次性成本提示(搜索额度+探测 token+claude 订阅)。
+6. **用户分层入口** — 横幅全员可见;"claude code 编码"仅工具链探测通过时出现(claude+cargo,复用 package_manager.rs 的 where/which 模式);端用户走 T0 数据路径(§5.5 编译边界)。
+
+**状态机**: `IDLE → SCANNING → (HAS_NEW → BANNER) → WORKSHOP(classify → T0: confirm-add / T1-T2: spec→codegen→verify) → PATCH_REVIEW → DONE`;`DISMISSED` 同指纹结果不重弹,出现新模型再弹。i18n 走新 locale 命名空间(如 `modelUpdates.json`,zh-CN/en-US 各一份)。
+
 ## 6. 风险清单
 
 | 风险 | 缓解 |
