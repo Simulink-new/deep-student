@@ -56,7 +56,9 @@ pub async fn chat_v2_delete_message(
     chat_v2_state: State<'_, Arc<ChatV2State>>,
 ) -> ChatV2Result<()> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
-    crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
+    crate::chat_v2::write_gate::check_chat_v2_write_gate(
+        &app.state::<crate::commands::AppState>(),
+    )?;
     log::info!(
         "[ChatV2::handlers] chat_v2_delete_message: session_id={}, message_id={}",
         session_id,
@@ -74,9 +76,10 @@ pub async fn chat_v2_delete_message(
 
     // 验证消息 ID 格式
     if !message_id.starts_with("msg_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid message ID format: {}", message_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid message ID format: {}",
+            message_id
+        )));
     }
 
     // 删除消息（包含级联删除块）
@@ -124,9 +127,10 @@ pub async fn chat_v2_copy_block_content(
 
     // 验证块 ID 格式
     if !block_id.starts_with("blk_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid block ID format: {}", block_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid block ID format: {}",
+            block_id
+        )));
     }
 
     let output_format = format.unwrap_or_else(|| "text".to_string());
@@ -299,7 +303,9 @@ pub async fn chat_v2_update_block_content(
     chat_v2_state: State<'_, Arc<ChatV2State>>,
 ) -> ChatV2Result<()> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
-    crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
+    crate::chat_v2::write_gate::check_chat_v2_write_gate(
+        &app.state::<crate::commands::AppState>(),
+    )?;
     log::info!(
         "[ChatV2::handlers] chat_v2_update_block_content: block_id={}, content_len={}",
         block_id,
@@ -308,9 +314,10 @@ pub async fn chat_v2_update_block_content(
 
     // 验证块 ID 格式
     if !block_id.starts_with("blk_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid block ID format: {}", block_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid block ID format: {}",
+            block_id
+        )));
     }
 
     // 🔒 P1 修复（2026-01-10）：检查块所属会话是否有活跃流
@@ -351,7 +358,9 @@ pub async fn chat_v2_update_block_tool_output(
     db: State<'_, Arc<ChatV2Database>>,
 ) -> ChatV2Result<()> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
-    crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
+    crate::chat_v2::write_gate::check_chat_v2_write_gate(
+        &app.state::<crate::commands::AppState>(),
+    )?;
     log::info!(
         "[ChatV2::handlers] chat_v2_update_block_tool_output: block_id={}, len={}",
         block_id,
@@ -359,9 +368,10 @@ pub async fn chat_v2_update_block_tool_output(
     );
 
     if !block_id.starts_with("blk_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid block ID format: {}", block_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid block ID format: {}",
+            block_id
+        )));
     }
 
     // 验证 JSON 合法性
@@ -412,7 +422,8 @@ pub async fn chat_v2_get_anki_cards_from_block_by_document_id(
         .map_err(|e| ChatV2Error::Other(format!("Failed to query blocks: {}", e)))?;
 
     for row in rows {
-        let tool_output_json = row.map_err(|e| ChatV2Error::Other(format!("Failed to read row: {}", e)))?;
+        let tool_output_json =
+            row.map_err(|e| ChatV2Error::Other(format!("Failed to read row: {}", e)))?;
         let parsed: serde_json::Value = match serde_json::from_str(&tool_output_json) {
             Ok(value) => value,
             Err(_) => continue,
@@ -498,7 +509,9 @@ pub async fn chat_v2_upsert_streaming_block(
     db: State<'_, Arc<ChatV2Database>>,
 ) -> ChatV2Result<()> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
-    crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
+    crate::chat_v2::write_gate::check_chat_v2_write_gate(
+        &app.state::<crate::commands::AppState>(),
+    )?;
     log::info!(
         "[ChatV2::handlers] chat_v2_upsert_streaming_block: block_id={}, message_id={}, session_id={:?}, type={}, content_len={}, has_tool={}",
         block_id,
@@ -511,16 +524,18 @@ pub async fn chat_v2_upsert_streaming_block(
 
     // 验证块 ID 格式
     if !block_id.starts_with("blk_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid block ID format: {}", block_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid block ID format: {}",
+            block_id
+        )));
     }
 
     // 验证消息 ID 格式
     if !message_id.starts_with("msg_") {
-        return Err(
-            ChatV2Error::Validation(format!("Invalid message ID format: {}", message_id)),
-        );
+        return Err(ChatV2Error::Validation(format!(
+            "Invalid message ID format: {}",
+            message_id
+        )));
     }
 
     // 🔧 P35: 解析工具输入/输出 JSON
@@ -593,6 +608,60 @@ pub async fn chat_v2_upsert_streaming_block(
 /// 🔧 P35 批判性修复：追加块 ID 到消息的 block_ids_json
 ///
 /// 如果消息存在，追加 block_id；如果消息不存在，忽略（流式块场景）
+/// 🔧 P0-b 边界优化: 管线内部流式周期落盘——chat_v2_upsert_streaming_block 的
+/// 进程内等价物，省去前端每 5s 全量内容回声的 IPC 税（O(n²) 传输）。
+/// 语义与命令版一致: 占位消息保障 + 块 UPSERT + block_ids 追加；
+/// status 固定 RUNNING，流结束时 save_results 以最终状态覆盖。
+pub(crate) fn persist_streaming_block_internal(
+    db: &ChatV2Database,
+    session_id: Option<&str>,
+    message_id: &str,
+    block_type: &str,
+    block_id: &str,
+    content: &str,
+) -> Result<(), ChatV2Error> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let block = crate::chat_v2::types::MessageBlock {
+        id: block_id.to_string(),
+        message_id: message_id.to_string(),
+        block_type: block_type.to_string(),
+        status: crate::chat_v2::types::block_status::RUNNING.to_string(),
+        content: if content.is_empty() {
+            None
+        } else {
+            Some(content.to_string())
+        },
+        tool_name: None,
+        tool_input: None,
+        tool_output: None,
+        citations: None,
+        error: None,
+        started_at: Some(now_ms),
+        ended_at: None, // 流式进行中；流结束时由 save_results 落最终状态
+        first_chunk_at: Some(now_ms),
+        block_index: 0,
+    };
+
+    // 先确保消息占位行存在（FK 约束要求消息先于块存在）
+    let conn = db.get_conn_safe()?;
+    if let Err(e) = ensure_message_exists_with_block(&conn, session_id, message_id, block_id) {
+        log::warn!(
+            "[ChatV2::handlers] Failed to ensure placeholder message for periodic persist: {}",
+            e
+        );
+    }
+
+    upsert_block_in_db(&block, db)?;
+
+    if let Err(e) = append_block_id_to_message(&conn, message_id, block_id) {
+        log::warn!(
+            "[ChatV2::handlers] Failed to append block id for periodic persist: {}",
+            e
+        );
+    }
+    Ok(())
+}
+
 fn append_block_id_to_message(
     conn: &rusqlite::Connection,
     message_id: &str,
@@ -824,7 +893,9 @@ pub async fn chat_v2_anki_cards_result(
     app: AppHandle,
 ) -> ChatV2Result<String> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
-    crate::chat_v2::write_gate::check_chat_v2_write_gate(&app.state::<crate::commands::AppState>())?;
+    crate::chat_v2::write_gate::check_chat_v2_write_gate(
+        &app.state::<crate::commands::AppState>(),
+    )?;
     use tauri::Emitter;
 
     log::info!(

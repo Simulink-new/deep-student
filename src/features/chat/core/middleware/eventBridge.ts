@@ -13,7 +13,7 @@
 
 import type { ChatStore, VariantStatus, TokenUsage } from '../types';
 import { eventRegistry, type EventStartPayload } from '../../registry/eventRegistry';
-import { autoSave, streamingBlockSaver } from './autoSave';
+import { autoSave } from './autoSave';
 import { chunkBuffer } from './chunkBuffer';
 import { logMultiVariant } from '@/debug-panel/plugins/MultiVariantDebugPlugin';
 import { EVENT_BRIDGE_MAX_BUFFER_SIZE, EVENT_BRIDGE_MAX_PROCESSED_IDS, EVENT_BRIDGE_GAP_TIMEOUT_MS } from '../constants';
@@ -894,16 +894,9 @@ function handleBlockEventWithVariant(
           chunkBuffer.setStore(store);
           chunkBuffer.push(effectiveBlockId, chunk, store.sessionId);
 
-          // 🔧 防闪退：多变体流式块也进行定期保存
-          if (effectiveMessageId) {
-            streamingBlockSaver.scheduleBlockSave(
-              effectiveBlockId,
-              effectiveMessageId,
-              type,
-              chunk,
-              store.sessionId
-            );
-          }
+          // 🔧 P0-b 边界优化: 防闪退的周期落盘已下沉到 Rust 管线侧
+          // （ChatV2LLMAdapter/VariantLLMAdapter 的 PeriodicBlockPersister，5s 时间闸），
+          // 删除此处每 5s 全量内容回传 chat_v2_upsert_streaming_block 的 IPC 回声。
         } else {
           console.log(`[EventBridge] 📤 direct update: type=${type}`);
           handler.onChunk(store, effectiveBlockId, chunk ?? '');
@@ -1085,19 +1078,9 @@ export function handleBackendEvent(store: ChatStore, event: BackendEvent): void 
           chunkBuffer.setStore(store);
           chunkBuffer.push(effectiveBlockId, chunk, store.sessionId);
 
-          // 🔧 防闪退：定期保存流式块内容到后端
-          // 注意：传入 chunk 而不是 block.content，因为 chunkBuffer 有 16ms 延迟
-          // streamingBlockSaver 会自己累积 chunk
-          // 🔧 P2修复：传递 sessionId 支持多会话并发清理
-          if (effectiveMessageId) {
-            streamingBlockSaver.scheduleBlockSave(
-              effectiveBlockId,
-              effectiveMessageId,
-              type,
-              chunk,
-              store.sessionId
-            );
-          }
+          // 🔧 P0-b 边界优化: 防闪退的周期落盘已下沉到 Rust 管线侧
+          // （ChatV2LLMAdapter/VariantLLMAdapter 的 PeriodicBlockPersister，5s 时间闸），
+          // 删除此处每 5s 全量内容回传 chat_v2_upsert_streaming_block 的 IPC 回声。
         } else {
           // 其他类型直接更新
           console.log(`[EventBridge:Main] 📤 direct update`);
@@ -1218,8 +1201,8 @@ export async function handleStreamComplete(
   // 🔧 P1修复：只刷新当前会话的 chunkBuffer（不清理，保留 session 缓冲区供后续复用）
   chunkBuffer.flushSession(store.sessionId);
 
-  // 🔧 清理流式块保存器的累积内容（防止内存泄漏）
-  streamingBlockSaver.cleanup(store.sessionId);
+  // 🔧 P0-b: streamingBlockSaver 已休眠（防闪退落盘下沉 Rust 侧），
+  // 无喂入者，无需清理其累积内容。
 
   // 🔧 修复 ChatAnki 后台管线数据断裂：
   // 不在此处清理事件上下文/桥接状态/去重集合，因为后台管线（ChatAnki pipeline）
@@ -1250,8 +1233,8 @@ export async function handleStreamAbort(store: ChatStore): Promise<void> {
   // 🔧 P1修复：只刷新当前会话的 chunkBuffer（不清理，保留 session 缓冲区供后续复用）
   chunkBuffer.flushSession(store.sessionId);
 
-  // 🔧 清理流式块保存器的累积内容（防止内存泄漏）
-  streamingBlockSaver.cleanup(store.sessionId);
+  // 🔧 P0-b: streamingBlockSaver 已休眠（防闪退落盘下沉 Rust 侧），
+  // 无喂入者，无需清理其累积内容。
 
   // 🔧 修复 ChatAnki 后台管线数据断裂（同 handleStreamComplete）：
   // 不在此处清理事件上下文/桥接状态/去重集合，避免中断后仍可能到达的

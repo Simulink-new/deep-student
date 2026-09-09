@@ -20,6 +20,9 @@ pub(crate) struct VariantLLMAdapter {
     preparing_block_ids: Mutex<HashMap<String, String>>,
     /// tool_call_id → 累积的 args delta（节流缓冲）
     args_delta_buffer: Mutex<HashMap<String, String>>,
+    /// 🔧 P0-b 边界优化: 流式期间周期性落盘器（防闪退，5s 时间闸 + 脏检查），
+    /// 取代前端每 5s 全量内容回声的 IPC 税。见 periodic_persist.rs。
+    periodic_persist: super::periodic_persist::PeriodicBlockPersister,
 }
 
 impl VariantLLMAdapter {
@@ -41,6 +44,7 @@ impl VariantLLMAdapter {
             think_tag_buffer: Mutex::new(String::new()),
             preparing_block_ids: Mutex::new(HashMap::new()),
             args_delta_buffer: Mutex::new(HashMap::new()),
+            periodic_persist: super::periodic_persist::PeriodicBlockPersister::new(),
         }
     }
 
@@ -331,6 +335,50 @@ impl VariantLLMAdapter {
         self.ctx.get_content_block_id()
     }
 
+    /// 🔧 P0-b: 注入周期落盘钩子（适配器构造后由管线调用）
+    pub(crate) fn set_periodic_persist_hook(
+        &self,
+        hook: super::periodic_persist::PeriodicPersistHook,
+    ) {
+        self.periodic_persist.set_hook(hook);
+    }
+
+    /// 🔧 P0-b: chunk 后惰性检查是否到落盘时机；到点则快照累积内容写 DB。
+    fn maybe_periodic_persist(&self) {
+        if !self.periodic_persist.on_chunk_due() {
+            return;
+        }
+        let Some(hook) = self.periodic_persist.hook() else {
+            return;
+        };
+        let message_id = self.ctx.message_id();
+        // thinking 块（含已 finalize 的，取累积推理全文）
+        if let Some(block_id) = self.get_thinking_block_id() {
+            if let Some(reasoning) = self.get_accumulated_reasoning() {
+                if !reasoning.is_empty() {
+                    hook(
+                        message_id,
+                        crate::chat_v2::types::block_types::THINKING,
+                        &block_id,
+                        &reasoning,
+                    );
+                }
+            }
+        }
+        // content 块
+        if let Some(block_id) = self.get_content_block_id() {
+            let content = self.ctx.get_accumulated_content();
+            if !content.is_empty() {
+                hook(
+                    message_id,
+                    crate::chat_v2::types::block_types::CONTENT,
+                    &block_id,
+                    &content,
+                );
+            }
+        }
+    }
+
     pub fn reset_for_new_round(&self) {
         *self
             .content_block_initialized
@@ -374,6 +422,8 @@ impl crate::llm_manager::LLMStreamHooks for VariantLLMAdapter {
             buffer.push_str(text);
         }
         self.process_think_tag_buffer();
+        // 🔧 P0-b: 周期性落盘检查（5s 时间闸，防闪退）
+        self.maybe_periodic_persist();
     }
 
     fn on_reasoning_chunk(&self, text: &str) {
@@ -397,6 +447,8 @@ impl crate::llm_manager::LLMStreamHooks for VariantLLMAdapter {
             self.ctx.emit_chunk(event_types::THINKING, &block_id, text);
             self.ctx.append_reasoning(text);
         }
+        // 🔧 P0-b: 周期性落盘检查（5s 时间闸，防闪退）
+        self.maybe_periodic_persist();
     }
 
     fn on_tool_call_start(&self, tool_call_id: &str, tool_name: &str) {

@@ -161,6 +161,9 @@ pub struct ChatV2LLMAdapter {
     preparing_block_ids: std::sync::Mutex<HashMap<String, String>>,
     /// tool_call_id → 累积的 args delta（节流缓冲，减少事件频率）
     args_delta_buffer: std::sync::Mutex<HashMap<String, String>>,
+    /// 🔧 P0-b 边界优化: 流式期间周期性落盘器（防闪退，5s 时间闸 + 脏检查），
+    /// 取代前端每 5s 全量内容回声的 IPC 税。见 periodic_persist.rs。
+    periodic_persist: super::periodic_persist::PeriodicBlockPersister,
 }
 
 impl ChatV2LLMAdapter {
@@ -190,12 +193,56 @@ impl ChatV2LLMAdapter {
             cached_thought_signature: std::sync::Mutex::new(None),
             preparing_block_ids: std::sync::Mutex::new(HashMap::new()),
             args_delta_buffer: std::sync::Mutex::new(HashMap::new()),
+            periodic_persist: super::periodic_persist::PeriodicBlockPersister::new(),
         }
     }
 
     /// 生成块 ID
     pub(crate) fn generate_block_id() -> String {
         format!("blk_{}", Uuid::new_v4())
+    }
+
+    /// 🔧 P0-b: 注入周期落盘钩子（适配器构造后由管线调用）
+    pub(crate) fn set_periodic_persist_hook(
+        &self,
+        hook: super::periodic_persist::PeriodicPersistHook,
+    ) {
+        self.periodic_persist.set_hook(hook);
+    }
+
+    /// 🔧 P0-b: chunk 后惰性检查是否到落盘时机；到点则快照累积内容写 DB。
+    fn maybe_periodic_persist(&self) {
+        if !self.periodic_persist.on_chunk_due() {
+            return;
+        }
+        let Some(hook) = self.periodic_persist.hook() else {
+            return;
+        };
+        // thinking 块（含已 finalize 的，取累积推理全文）
+        if let Some(block_id) = self.get_thinking_block_id() {
+            if let Some(reasoning) = self.get_accumulated_reasoning() {
+                if !reasoning.is_empty() {
+                    hook(
+                        &self.message_id,
+                        crate::chat_v2::types::block_types::THINKING,
+                        &block_id,
+                        &reasoning,
+                    );
+                }
+            }
+        }
+        // content 块
+        if let Some(block_id) = self.get_content_block_id() {
+            let content = self.get_accumulated_content();
+            if !content.is_empty() {
+                hook(
+                    &self.message_id,
+                    crate::chat_v2::types::block_types::CONTENT,
+                    &block_id,
+                    &content,
+                );
+            }
+        }
     }
 
     /// 刷新指定 tool_call_id 的 args delta 缓冲（参数累积完成时调用）
@@ -755,6 +802,8 @@ impl LLMStreamHooks for ChatV2LLMAdapter {
             buffer.push_str(text);
         }
         self.process_think_tag_buffer();
+        // 🔧 P0-b: 周期性落盘检查（5s 时间闸，防闪退）
+        self.maybe_periodic_persist();
     }
 
     fn on_reasoning_chunk(&self, text: &str) {
@@ -790,6 +839,8 @@ impl LLMStreamHooks for ChatV2LLMAdapter {
             self.emitter
                 .emit_chunk(event_types::THINKING, &block_id, text, None);
         }
+        // 🔧 P0-b: 周期性落盘检查（5s 时间闸，防闪退）
+        self.maybe_periodic_persist();
     }
 
     /// 🆕 2026-01-15: 工具调用参数开始累积时通知前端

@@ -33,9 +33,7 @@ pub(crate) use crate::llm_manager::{LLMManager, LLMStreamHooks};
 pub(crate) use super::approval_manager::{ApprovalManager, ApprovalRequest};
 pub(crate) use super::database::ChatV2Database;
 pub(crate) use super::tools::builtin_retrieval_executor::BUILTIN_NAMESPACE;
-pub(crate) use super::tools::{
-    ExecutionContext, ToolExecutorRegistry, ToolSensitivity,
-};
+pub(crate) use super::tools::{ExecutionContext, ToolExecutorRegistry, ToolSensitivity};
 pub(crate) use crate::database::Database as MainDatabase;
 pub(crate) use crate::models::{
     ChatMessage as LegacyChatMessage, MultimodalContentPart, RagSourceInfo,
@@ -74,6 +72,7 @@ pub mod helpers;
 pub mod history;
 pub mod llm_adapter;
 pub mod multi_variant;
+pub mod periodic_persist;
 pub mod persistence;
 pub mod prompt;
 pub mod retrieval;
@@ -208,8 +207,6 @@ impl ChatV2Pipeline {
         self.pdf_processing_service = service;
         self
     }
-
-
 
     /// 根据工具名称判断正确的 block_type
     ///

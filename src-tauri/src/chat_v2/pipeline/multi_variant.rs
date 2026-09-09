@@ -584,7 +584,10 @@ impl ChatV2Pipeline {
                         Err(_) => return Ok(String::new()),
                     };
                     let mem_storage = std::sync::Arc::new(VfsMemoryStorage::new(
-                        vfs_db.clone(), lance_store, self.llm_manager.clone()));
+                        vfs_db.clone(),
+                        lance_store,
+                        self.llm_manager.clone(),
+                    ));
                     let mem_config = crate::memory::MemoryConfig::new(mem_storage);
                     let frequency = mem_config
                         .get_auto_extract_frequency()
@@ -637,7 +640,10 @@ impl ChatV2Pipeline {
                                     Err(_) => return,
                                 };
                                 let mem_storage = std::sync::Arc::new(VfsMemoryStorage::new(
-                                    vfs_db.clone(), lance_store, llm_mgr.clone()));
+                                    vfs_db.clone(),
+                                    lance_store,
+                                    llm_mgr.clone(),
+                                ));
                                 let memory_service = MemoryService::new_with_storage(
                                     mem_storage.clone(),
                                     llm_mgr.clone(),
@@ -795,6 +801,32 @@ impl ChatV2Pipeline {
             options.skill_state_version,
             Some("variant-tool-round-0".to_string()),
         ));
+
+        // 🔧 P0-b 边界优化: 流式期间由 Rust 侧周期性落盘（防闪退，5s 时间闸），
+        // 取代前端 StreamingBlockSaver 每 5s 全量内容回声（IPC O(n²) 税）。
+        {
+            let db = self.db.clone();
+            let sid = session_id.clone();
+            emitter.set_periodic_persist_hook(std::sync::Arc::new(
+                move |message_id: &str, block_type: &str, block_id: &str, content: &str| {
+                    if let Err(e) =
+                        crate::chat_v2::handlers::block_actions::persist_streaming_block_internal(
+                            &db,
+                            Some(&sid),
+                            message_id,
+                            block_type,
+                            block_id,
+                            content,
+                        )
+                    {
+                        log::warn!(
+                            "[ChatV2::pipeline] periodic streaming persist failed: {}",
+                            e
+                        );
+                    }
+                },
+            ));
+        }
 
         // 注册 LLM 流式回调 hooks
         // 🔧 P0修复：每个变体使用唯一的 hook 键，避免并行执行时互相覆盖
@@ -1047,6 +1079,32 @@ impl ChatV2Pipeline {
             options.skill_state_version,
             Some("variant-tool-round-0".to_string()),
         ));
+
+        // 🔧 P0-b 边界优化: 流式期间由 Rust 侧周期性落盘（防闪退，5s 时间闸），
+        // 取代前端 StreamingBlockSaver 每 5s 全量内容回声（IPC O(n²) 税）。
+        {
+            let db = self.db.clone();
+            let sid = session_id.clone();
+            adapter.set_periodic_persist_hook(std::sync::Arc::new(
+                move |message_id: &str, block_type: &str, block_id: &str, content: &str| {
+                    if let Err(e) =
+                        crate::chat_v2::handlers::block_actions::persist_streaming_block_internal(
+                            &db,
+                            Some(&sid),
+                            message_id,
+                            block_type,
+                            block_id,
+                            content,
+                        )
+                    {
+                        log::warn!(
+                            "[ChatV2::pipeline] periodic streaming persist failed: {}",
+                            e
+                        );
+                    }
+                },
+            ));
+        }
         let stream_event = format!("chat_v2_event_{}_{}", session_id, ctx.variant_id());
         self.llm_manager
             .register_stream_hooks(&stream_event, adapter.clone())
@@ -1592,7 +1650,10 @@ impl ChatV2Pipeline {
             .ok()
             .map(std::sync::Arc::new)?;
         let mem_storage = std::sync::Arc::new(VfsMemoryStorage::new(
-            vfs_db.clone(), lance_store, self.llm_manager.clone()));
+            vfs_db.clone(),
+            lance_store,
+            self.llm_manager.clone(),
+        ));
         let mem_cfg = MemoryConfig::new(mem_storage.clone());
         if mem_cfg.is_privacy_mode().ok()? {
             return None;
