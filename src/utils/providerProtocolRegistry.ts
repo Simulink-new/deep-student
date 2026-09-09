@@ -32,9 +32,12 @@ export const getProviderProtocolRecord = (providerType?: string | null): Provide
 };
 
 const resolvesToOfficialOpenAi = (providerType?: string | null, baseUrl?: string | null) => {
+  // 与 Rust resolves_to_official_openai 对齐：provider=openai 仅在 base_url 为空
+  // （未配置，走官方默认端点）时视为官方；填了第三方域名的按第三方处理。
   const normalizedProvider = normalize(providerType);
   const normalizedBaseUrl = normalizeBaseUrlForProtocolRegistry(baseUrl);
-  return normalizedProvider === 'openai' || normalizedBaseUrl.includes('api.openai.com');
+  return normalizedBaseUrl.includes('api.openai.com')
+    || (normalizedProvider === 'openai' && normalizedBaseUrl === '');
 };
 
 export const providerSupportsOpenAiResponses = (args: {
@@ -42,7 +45,16 @@ export const providerSupportsOpenAiResponses = (args: {
   baseUrl?: string | null;
   supportsOpenAIResponses?: boolean | null;
 }): boolean => {
-  if (args.supportsOpenAIResponses === true) return true;
+  if (args.supportsOpenAIResponses === true) {
+    // ★ 第三方代理安全守卫（对齐 Rust provider_supports_openai_responses）：
+    // 有明确非 OpenAI 域名 base_url（中转站）的 Responses API 实现常不完整，
+    // 会导致上游 502。忽略自动检测的支持标记，直接禁用。
+    // 空 base_url（未配置）或 api.openai.com 不受影响。
+    const baseUrlHasContent = Boolean(normalizeBaseUrlForProtocolRegistry(args.baseUrl));
+    const isThirdParty = baseUrlHasContent && !resolvesToOfficialOpenAi(args.providerType, args.baseUrl);
+    if (!isThirdParty) return true;
+    return false;
+  }
   if (resolvesToOfficialOpenAi(args.providerType, args.baseUrl)) return true;
   return getProviderProtocolRecord(args.providerType)?.supports_openai_responses === true;
 };
