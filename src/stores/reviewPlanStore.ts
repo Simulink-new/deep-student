@@ -17,6 +17,14 @@ import { debugLog } from '../debug-panel/debugMasterSwitch';
 import { showGlobalNotification } from '../components/UnifiedNotification';
 import i18n from '@/i18n';
 
+/** 本地时区"今天"（YYYY-MM-DD）。
+ *  toISOString 取的是 UTC 日期，东八区 00:00-08:00 之间会落后一天，
+ *  与后端 local_today_string() 对齐。 */
+const localTodayISODate = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -722,12 +730,12 @@ export const useReviewPlanStore = create<ReviewPlanState>()(
       },
 
       getOverdueCount: () => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localTodayISODate();
         return get().dueReviews.filter((p) => p.next_review_date < today).length;
       },
 
       getTodayDueCount: () => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localTodayISODate();
         return get().dueReviews.filter((p) => p.next_review_date === today).length;
       },
     })),

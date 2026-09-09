@@ -200,7 +200,7 @@ impl ReviewPlanService {
         );
 
         // 3. 计算下次复习日期
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let today = crate::spaced_repetition::local_today_string();
         let next_review_date = calculate_next_review_date(new_interval);
 
         // 4. 判断是否通过
