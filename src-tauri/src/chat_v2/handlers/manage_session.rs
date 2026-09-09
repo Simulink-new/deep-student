@@ -9,7 +9,7 @@ use tauri::{Manager, State};
 
 use crate::chat_v2::database::ChatV2Database;
 use crate::chat_v2::error::ChatV2Error;
-use crate::chat_v2::events::clear_session_sequence_counter;
+use crate::chat_v2::events::{clear_session_chunk_buffer, clear_session_sequence_counter};
 use crate::chat_v2::repo::ChatV2Repo;
 use crate::chat_v2::state::ChatV2State;
 use crate::chat_v2::types::{
@@ -648,6 +648,7 @@ pub async fn chat_v2_delete_session(
     // 从数据库删除会话（级联删除）
     ChatV2Repo::delete_session_v2(&db, &session_id).map_err(|e| e.to_string())?;
     clear_session_sequence_counter(&session_id);
+    clear_session_chunk_buffer(&session_id);
 
     log::info!(
         "[ChatV2::handlers] Deleted session with cascade: id={}",

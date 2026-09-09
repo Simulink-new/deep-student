@@ -22,9 +22,12 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Window};
 
 use super::types::TokenUsage;
@@ -729,6 +732,115 @@ pub fn clear_session_sequence_counter(session_id: &str) {
     SESSION_SEQUENCE_COUNTERS.remove(session_id);
 }
 
+// ============================================================
+// Chunk 合批缓冲（按 session_id）
+// ============================================================
+
+/// chunk 合批缓冲字节阈值（与前端 CHUNK_MAX_BUFFER_SIZE 对齐）
+const CHUNK_BATCH_MAX_BYTES: usize = 4096;
+
+/// chunk 合批惰性时间窗口：仅当后续事件到达时检查，无后台定时器
+const CHUNK_BATCH_INTERVAL: Duration = Duration::from_millis(16);
+
+/// 待发 chunk 缓冲（每 session 一份）
+///
+/// LLM 流式 chunk 频率高（每个 token 一发），逐条 `window.emit` 的
+/// 序列化/分发成本显著，而前端 chunkBuffer.ts 又会按 4ms/4096 重新攒批。
+/// 此处先在后端合并：`buf` 中每个元素是一条待发射的 chunk 事件，同一
+/// chunk 流（见 [`same_chunk_stream`]）的连续片段拼接进末条并复用其
+/// 序列号 —— 前端按序列号连续性检测乱序/丢失，占号不发射会产生缺口，
+/// 导致后续事件被 pendingEvents 缓冲挂起直到 3s gap 超时。
+struct PendingChunks {
+    /// 待发 chunk 事件（新开条目时已占序列号；被合并片段不占号）
+    buf: Vec<BackendEvent>,
+    /// 待发 chunk 总字节数（字节阈值判定用）
+    bytes: usize,
+    /// 上次 flush 时间（惰性判 16ms 窗口）
+    last_flush: Instant,
+}
+
+static SESSION_CHUNK_BUFFERS: LazyLock<Mutex<HashMap<String, PendingChunks>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 判断两条 chunk 事件是否属于同一 chunk 流（可安全拼接合并）
+///
+/// 仅当寻址字段完全一致（事件类型 + block_id + variant/skill/round 元数据）
+/// 才允许合并；不同 block 的 chunk 永不合并，避免文本串块。
+/// 合并只发生在"缓冲末条 + 新片段"之间，跨块 chunk 的相对顺序不受影响。
+fn same_chunk_stream(a: &BackendEvent, b: &BackendEvent) -> bool {
+    a.r#type == b.r#type
+        && a.block_id == b.block_id
+        && a.variant_id == b.variant_id
+        && a.skill_state_version == b.skill_state_version
+        && a.round_id == b.round_id
+}
+
+/// 锁内取出并清空指定 session 的待发 chunk（发射由调用方在锁外完成）
+fn drain_session_chunks(session_id: &str) -> Vec<BackendEvent> {
+    let mut buffers = SESSION_CHUNK_BUFFERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    match buffers.get_mut(session_id) {
+        Some(buf) if !buf.buf.is_empty() => {
+            let events = std::mem::take(&mut buf.buf);
+            buf.bytes = 0;
+            buf.last_flush = Instant::now();
+            events
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// 发射单条块级事件（含日志；供 emitter 与合批 flush 共用）
+fn emit_backend_event<R: tauri::Runtime>(
+    emitter: &impl tauri::Emitter<R>,
+    event_name: &str,
+    event: &BackendEvent,
+) {
+    if let Err(e) = emitter.emit(event_name, event) {
+        log::error!(
+            "[ChatV2::events] Failed to emit block event: {} - {:?}",
+            event_name,
+            e
+        );
+    } else {
+        log::debug!(
+            "[ChatV2::events] Emitted block event: {} type={} phase={} seq={}",
+            event_name,
+            event.r#type,
+            event.phase,
+            event.sequence_id
+        );
+    }
+}
+
+/// flush 指定 session 缓冲中的待发 chunk
+///
+/// 供绕过 `ChatV2EventEmitter`、直接向 `chat_v2_event_{session_id}` 通道
+/// 发射事件的调用方使用：必须在占序列号/直接发射之前调用，保证待发
+/// chunk（序列号更小）先于直接发射的事件到达前端，不触发前端的
+/// 乱序缓冲或"过期事件丢弃"。
+pub fn flush_session_chunk_events<R: tauri::Runtime>(
+    emitter: &impl tauri::Emitter<R>,
+    session_id: &str,
+) {
+    let event_name = format!("chat_v2_event_{}", session_id);
+    for mut event in drain_session_chunks(session_id) {
+        if event.session_id.is_none() {
+            event.session_id = Some(session_id.to_string());
+        }
+        emit_backend_event(emitter, &event_name, &event);
+    }
+}
+
+/// 清理 session 的 chunk 合批缓冲（会话删除时随序列号计数器一并清理）
+pub fn clear_session_chunk_buffer(session_id: &str) {
+    SESSION_CHUNK_BUFFERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(session_id);
+}
+
 pub struct ChatV2EventEmitter {
     window: Window,
     session_id: String,
@@ -826,31 +938,90 @@ impl ChatV2EventEmitter {
     // ========== 内部发射方法 ==========
 
     /// 发射块级事件（内部方法）
+    ///
+    /// 非 chunk 事件路径：发射前先 flush 同 session 的待发 chunk，保证
+    /// chunk 与非 chunk 事件的相对顺序不变（合批 flush 触发点 c）。
     fn emit(&self, mut event: BackendEvent) {
-        let event_name = self.block_event_channel();
+        self.flush_pending_chunks();
         if event.session_id.is_none() {
             event.session_id = Some(self.session_id.clone());
         }
 
-        if let Err(e) = self.window.emit(&event_name, &event) {
-            log::error!(
-                "[ChatV2::events] Failed to emit block event: {} - {:?}",
-                event_name,
-                e
-            );
-        } else {
-            log::debug!(
-                "[ChatV2::events] Emitted block event: {} type={} phase={} seq={}",
-                event_name,
-                event.r#type,
-                event.phase,
-                event.sequence_id
-            );
+        emit_backend_event(&self.window, &self.block_event_channel(), &event);
+    }
+
+    /// 将 chunk 事件追加进合批缓冲（不直接发射）
+    ///
+    /// 与缓冲末条属于同一 chunk 流（见 [`same_chunk_stream`]）时拼接合并
+    /// 并复用末条序列号（占号不发射会让前端序列号断档）；否则新开一条
+    /// 并占用一个序列号。追加后满足任一条件立即 flush：
+    /// (a) 缓冲字节 ≥ CHUNK_BATCH_MAX_BYTES
+    /// (b) 距上次 flush ≥ CHUNK_BATCH_INTERVAL（惰性检查，无后台任务）
+    fn buffer_chunk(&self, mut event: BackendEvent) {
+        let chunk_bytes = event.chunk.as_ref().map(|c| c.len()).unwrap_or(0);
+        let should_flush = {
+            let mut buffers = SESSION_CHUNK_BUFFERS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let buf = buffers
+                .entry(self.session_id.clone())
+                .or_insert_with(|| PendingChunks {
+                    buf: Vec::new(),
+                    bytes: 0,
+                    last_flush: Instant::now(),
+                });
+
+            let merged = match buf.buf.last_mut() {
+                Some(last) if same_chunk_stream(last, &event) => {
+                    if let Some(text) = event.chunk.take() {
+                        match last.chunk.as_mut() {
+                            Some(prev) => prev.push_str(&text),
+                            None => last.chunk = Some(text),
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if !merged {
+                // 仅新开条目时占用序列号；被合并的片段复用末条的序列号
+                event.sequence_id = self.next_sequence_id();
+                buf.buf.push(event);
+            }
+            buf.bytes += chunk_bytes;
+
+            buf.bytes >= CHUNK_BATCH_MAX_BYTES
+                || Instant::now().duration_since(buf.last_flush) >= CHUNK_BATCH_INTERVAL
+        };
+
+        if should_flush {
+            self.flush_pending_chunks();
+        }
+    }
+
+    /// 立即发射本 session 缓冲中的待发 chunk（合批 flush）
+    ///
+    /// 四个触发点：
+    /// (a) 缓冲字节 ≥ CHUNK_BATCH_MAX_BYTES — [`Self::buffer_chunk`] 内判定
+    /// (b) 距上次 flush ≥ CHUNK_BATCH_INTERVAL — [`Self::buffer_chunk`] 内惰性判定
+    /// (c) 任何非 chunk 块级事件发射前 — [`Self::emit`] 开头（保序）
+    /// (d) 会话级事件（含 stream_complete/error/cancelled 终态）发射前 —
+    ///     [`Self::emit_session`] 开头（保序）
+    fn flush_pending_chunks(&self) {
+        for mut event in drain_session_chunks(&self.session_id) {
+            if event.session_id.is_none() {
+                event.session_id = Some(self.session_id.clone());
+            }
+            emit_backend_event(&self.window, &self.block_event_channel(), &event);
         }
     }
 
     /// 发射会话级事件（内部方法）
+    ///
+    /// 发射前先 flush 同 session 的待发 chunk（合批 flush 触发点 d：
+    /// 终态事件必须晚于全部 chunk 到达前端）。
     fn emit_session(&self, event: SessionEvent) {
+        self.flush_pending_chunks();
         let event_name = self.session_event_channel();
         if let Err(e) = self.window.emit(&event_name, &event) {
             log::error!(
@@ -918,6 +1089,10 @@ impl ChatV2EventEmitter {
 
     /// 发射 chunk 事件
     ///
+    /// 进入按 session 的合批缓冲（见 [`Self::buffer_chunk`]），满足字节/时间
+    /// 阈值或即将发射非 chunk 事件时才真正 emit 合并后的一条；序列号在
+    /// 合批落缓冲时按需分配，而非每次调用即占号。
+    ///
     /// ## 参数
     /// - `event_type`: 事件类型
     /// - `block_id`: 块 ID
@@ -930,12 +1105,13 @@ impl ChatV2EventEmitter {
         chunk: &str,
         variant_id: Option<&str>,
     ) {
-        let seq = self.next_sequence_id();
-        let mut event = BackendEvent::chunk(seq, event_type, block_id, chunk, variant_id);
+        // sequence_id 由 buffer_chunk 在新开缓冲条目时分配
+        let mut event = BackendEvent::chunk(0, event_type, block_id, chunk, variant_id);
         self.apply_registered_meta(Some(block_id), &mut event);
-        self.emit(event);
+        self.buffer_chunk(event);
     }
 
+    /// 发射 chunk 事件（带 skill/round 元数据；同样进入合批缓冲）
     pub fn emit_chunk_with_meta(
         &self,
         event_type: &str,
@@ -945,12 +1121,12 @@ impl ChatV2EventEmitter {
         skill_state_version: Option<u64>,
         round_id: Option<&str>,
     ) {
-        let seq = self.next_sequence_id();
-        let mut event = BackendEvent::chunk(seq, event_type, block_id, chunk, variant_id);
+        // sequence_id 由 buffer_chunk 在新开缓冲条目时分配
+        let mut event = BackendEvent::chunk(0, event_type, block_id, chunk, variant_id);
         event.skill_state_version = skill_state_version;
         event.round_id = round_id.map(|s| s.to_string());
         self.apply_registered_meta(Some(block_id), &mut event);
-        self.emit(event);
+        self.buffer_chunk(event);
     }
 
     /// 发射 end 事件

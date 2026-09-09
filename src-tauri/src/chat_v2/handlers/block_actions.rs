@@ -9,7 +9,9 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::chat_v2::database::ChatV2Database;
 use crate::chat_v2::error::{ChatV2Error, ChatV2Result};
-use crate::chat_v2::events::{event_phase, event_types, next_session_sequence_id};
+use crate::chat_v2::events::{
+    event_phase, event_types, flush_session_chunk_events, next_session_sequence_id,
+};
 use crate::chat_v2::handlers::manage_session::rebuild_session_skill_state_from_surviving_history;
 use crate::chat_v2::repo::ChatV2Repo;
 use crate::chat_v2::state::ChatV2State;
@@ -960,6 +962,10 @@ pub async fn chat_v2_anki_cards_result(
     // 使用会话特定的事件通道
     let event_channel = format!("chat_v2_event_{}", request.session_id);
 
+    // 此处绕过 ChatV2EventEmitter 直接发射：先 flush 该 session 合批缓冲中
+    // 待发的 chunk（其序列号更小），避免直接发射的事件先到导致待发 chunk
+    // 被前端当作过期事件丢弃
+    flush_session_chunk_events(&app, &request.session_id);
     let start_sequence_id = next_session_sequence_id(&request.session_id);
     // 发射 start 事件
     let start_event = serde_json::json!({
