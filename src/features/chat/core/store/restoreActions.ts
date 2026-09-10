@@ -753,8 +753,10 @@ export function createRestoreActions(
           console.log('[ChatStore] Session restored from backend:', session.id, 'isDataLoaded: true');
 
           // goal 模式 P0：恢复完成后拉取会话目标（fire-and-forget，不阻塞恢复链；
-          // fetchGoal 内部已捕获错误，旧后端无该命令时静默降级为无目标）
-          const fetchGoal = getState().fetchGoal;
+          // fetchGoal 内部已捕获错误，旧后端无该命令时静默降级为无目标）。
+          // 🔧 采矿修正(8c7f381d 跟进): fork 版 ChatStore 未实现 fetchGoal,
+          // 结构化断言取可选成员以满足类型(运行时 typeof 守卫本就容错)。
+          const fetchGoal = (getState() as { fetchGoal?: () => void }).fetchGoal;
           if (typeof fetchGoal === 'function') void fetchGoal();
 
           // 🔧 统一的异步恢复路径：资源验证 + 技能 ContextRef 重建
