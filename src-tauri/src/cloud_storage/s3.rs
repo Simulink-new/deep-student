@@ -193,7 +193,7 @@ impl S3Storage {
         }
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
-            return Err(s3_xml_error(status.as_u16(), &body_text));
+            return Err(Self::s3_xml_error(status.as_u16(), &body_text));
         }
         Ok(S3Response::Ok(resp))
     }
@@ -284,6 +284,12 @@ fn child_text(node: &roxmltree::Node, name: &str) -> Option<String> {
         .map(|t| t.trim().to_string())
 }
 
+/// 空请求体（reqwest 0.13 的 `Body::empty` 为私有 API，用 `From<Vec>` 构造；
+/// 编译验证时发现，见 e7dcf6f4 跟进）
+fn empty_body() -> reqwest::Body {
+    reqwest::Body::from(Vec::<u8>::new())
+}
+
 #[async_trait]
 impl CloudStorage for S3Storage {
     fn provider_name(&self) -> &'static str {
@@ -297,7 +303,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::HEAD,
                 None,
                 Vec::new(),
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )
@@ -366,7 +372,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::POST,
                 Some(&full_key),
                 vec![("uploads".to_string(), String::new())],
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )
@@ -500,7 +506,7 @@ impl CloudStorage for S3Storage {
                     reqwest::Method::DELETE,
                     Some(&full_key),
                     vec![("uploadId".to_string(), upload_id.clone())],
-                    reqwest::Body::empty(),
+                    empty_body(),
                     None,
                     None,
                 )
@@ -547,7 +553,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::GET,
                 Some(&full_key),
                 Vec::new(),
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )
@@ -635,7 +641,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::GET,
                 Some(&full_key),
                 Vec::new(),
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )
@@ -673,7 +679,7 @@ impl CloudStorage for S3Storage {
                     reqwest::Method::GET,
                     None,
                     query,
-                    reqwest::Body::empty(),
+                    empty_body(),
                     None,
                     None,
                 )
@@ -740,7 +746,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::DELETE,
                 Some(&full_key),
                 Vec::new(),
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )
@@ -759,7 +765,7 @@ impl CloudStorage for S3Storage {
                 reqwest::Method::HEAD,
                 Some(&full_key),
                 Vec::new(),
-                reqwest::Body::empty(),
+                empty_body(),
                 None,
                 None,
             )

@@ -79,8 +79,9 @@ moka = { version = "0.12", features = ["future"] }
 lru = "0.12"
 # 轻量级内置指标服务
 # 执行层审计 P1-c: metrics_server 只用 http1 serve(server::conn::http1+service_fn),
-# 裁掉 http2/h2 与 client 特性;axum 自带的 hyper 特性按需并入(union)。
-hyper = { version = "1", features = ["http1", "server", "runtime"] }
+# 裁掉 http2/h2 与 client 特性;TokioIo 走 hyper-util 的 tokio 特性。
+# (hyper 1.x 已无 runtime 特性——0.14 时代产物,首版误列,编译验证纠正)
+hyper = { version = "1", features = ["http1", "server"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 # RAG文档处理依赖（PDF 文本提取已统一使用 pdfium-render，不再依赖 pdf-extract）

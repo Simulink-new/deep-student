@@ -353,7 +353,7 @@ pub async fn create_stdio_transport(
     // 缺少此标志会分配一个一直挂在前台的控制台窗口（与库内其他 spawn 点的 CREATE_NO_WINDOW 惯例一致）
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
+        // tokio::process::Command 自带 creation_flags，无需 std 的 CommandExt
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
 
