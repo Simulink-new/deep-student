@@ -65,9 +65,11 @@ export interface TranslationPopoverProps {
 }
 
 // 后端事件 payload（与 chat_popover.rs 保持一致）
+// ★ 增量协议（2026-09-10，镜像 P0-d）：chunk 只带 delta，前端本地拼接；
+// complete 携带权威全量（缓存写入与 aligned 兜底解析用）。
 type ChatTranslationEvent =
-  | { type: 'chunk'; delta: string; accumulated: string }
-  | { type: 'complete' }
+  | { type: 'chunk'; delta: string }
+  | { type: 'complete'; accumulated: string }
   | { type: 'error'; message: string }
   | { type: 'cancelled' };
 
@@ -327,7 +329,8 @@ export const TranslationPopover: React.FC<TranslationPopoverProps> = ({
           const payload = event.payload;
           switch (payload.type) {
             case 'chunk': {
-              streamingAccumulated = payload.accumulated;
+              // ★ 增量协议：本地拼接 delta（后端不再发全量 accumulated）
+              streamingAccumulated += payload.delta;
               if (params.mode === 'aligned' && ndjsonParser) {
                 const { segments: newSegs } = ndjsonParser.push(payload.delta);
                 if (newSegs.length > 0) {
@@ -343,6 +346,8 @@ export const TranslationPopover: React.FC<TranslationPopoverProps> = ({
             }
             case 'complete': {
               if (myId !== reqIdRef.current) return;
+              // ★ 增量协议：以 complete 携带的权威全量替换（兜底丢包/错序）
+              streamingAccumulated = payload.accumulated;
               if (params.mode === 'aligned' && ndjsonParser) {
                 const tail = ndjsonParser.flush();
                 if (tail.segments.length > 0) {

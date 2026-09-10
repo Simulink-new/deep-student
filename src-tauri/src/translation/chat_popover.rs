@@ -46,11 +46,15 @@ pub struct ChatTranslationRequest {
 }
 
 /// 流事件 payload（独立于 standalone 翻译事件，结构更精简）
+///
+/// ★ 增量协议（2026-09-10，镜像 P0-d）：chunk 只携带本次新增 `delta`，
+/// 不再携带全量 accumulated（O(n²) 传输）；Complete 携带权威全量，
+/// 前端用于缓存写入与 aligned 兜底解析。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ChatTranslationEvent {
-    Chunk { delta: String, accumulated: String },
-    Complete,
+    Chunk { delta: String },
+    Complete { accumulated: String },
     Error { message: String },
     Cancelled,
 }
@@ -250,10 +254,7 @@ async fn run_chat_translation(
             emit_event(
                 &window_for_chunk,
                 &event_for_chunk,
-                ChatTranslationEvent::Chunk {
-                    delta: chunk,
-                    accumulated: accumulated.clone(),
-                },
+                ChatTranslationEvent::Chunk { delta: chunk },
             );
         },
     )
@@ -261,7 +262,13 @@ async fn run_chat_translation(
 
     match stream_result {
         Ok(StreamStatus::Completed) | Ok(StreamStatus::Incomplete) => {
-            emit_event(&window, &event_name, ChatTranslationEvent::Complete);
+            emit_event(
+                &window,
+                &event_name,
+                ChatTranslationEvent::Complete {
+                    accumulated: accumulated.clone(),
+                },
+            );
             info!(
                 "[ChatTranslation] complete event={} chars={}",
                 event_name,
