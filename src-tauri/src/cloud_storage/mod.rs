@@ -23,6 +23,8 @@
 mod config;
 #[cfg(feature = "cloud_storage_s3")]
 mod s3;
+#[cfg(feature = "cloud_storage_s3")]
+mod s3_sigv4;
 mod sync_manager;
 mod traits;
 mod webdav;
