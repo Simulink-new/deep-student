@@ -1,0 +1,904 @@
+src/App.tsx:1911:        const status = await invoke<AnnStatusResponse>('get_ann_status');
+src/App.tsx:576:        const status = await invoke<{ is_in_maintenance_mode: boolean }>('data_governance_get_maintenance_status');
+src/App.tsx:632:        const v = await invoke<string>('get_setting', { key: 'topbar.top_margin' });
+src/App.tsx:670:        const value = await invoke<string | null>('get_setting', {
+src/App.tsx:715:        const val = await invoke<string | null>('get_setting', { key: SIDEBAR_TRANSLUCENT_KEY });
+src/App.tsx:735:        const val = await invoke<string | null>('get_setting', { key: POINTER_CURSOR_SETTING_KEY });
+src/api/attachmentConfigApi.ts:10:    return invoke('vfs_get_attachment_config');
+src/api/attachmentConfigApi.ts:14:    return invoke('vfs_set_attachment_root_folder', { folderId });
+src/api/attachmentConfigApi.ts:18:    return invoke('vfs_create_attachment_root_folder', { title });
+src/api/chatV2Api.ts:11:export async function deleteSession(sessionId: string) { await invoke('chat_v2_delete_session', { sessionId }); }
+src/api/chatV2Api.ts:12:export async function updateSessionSettings(sessionId: string, settings: Record<string, unknown>) { await invoke('chat_v2_update_session_settings', { sessionId, settings }); }
+src/api/chatV2Api.ts:13:export async function archiveSession(sessionId: string) { await invoke('chat_v2_archive_session', { sessionId }); }
+src/api/chatV2Api.ts:14:export async function saveSession(sessionId: string) { await invoke('chat_v2_save_session', { sessionId }); }
+src/api/chatV2Api.ts:17:export async function upsertStreamingBlock(blockId: string, messageId: string, sessionId: string | null, blockType: string, content: string, status: string | null) { await invoke('chat_v2_upsert_streaming_block', { blockId, messageId, sessionId, blockType, content, status }); }
+src/api/chatV2Api.ts:18:export async function updateBlockToolOutput(blockId: string, toolOutputJson: string) { await invoke('chat_v2_update_block_tool_output', { blockId, toolOutputJson }); }
+src/api/chatV2Api.ts:19:export async function cancelStream(sessionId: string, messageId: string) { await invoke('chat_v2_cancel_stream', { sessionId, messageId }); }
+src/api/chatV2Api.ts:22:export async function addTag(sessionId: string, tag: string) { await invoke('chat_v2_add_tag', { sessionId, tag }); }
+src/api/chatV2Api.ts:23:export async function removeTag(sessionId: string, tag: string) { await invoke('chat_v2_remove_tag', { sessionId, tag }); }
+src/api/chatV2Api.ts:26:export async function reorderGroups(sessionId: string, groupIds: string[]) { await invoke('chat_v2_reorder_groups', { sessionId, groupIds }); }
+src/api/chatV2Api.ts:29:export async function askUserRespond(sessionId: string, response: string) { await invoke('chat_v2_ask_user_respond', { sessionId, response }); }
+src/api/chatV2Api.ts:30:export async function toolApprovalRespond(sessionId: string, approved: boolean) { await invoke('chat_v2_tool_approval_respond', { sessionId, approved }); }
+src/api/chatV2Api.ts:4: * P1-04 (2026-05-30): chat_v2 域中有 ~50 处分散的 invoke() 调用
+src/api/chatV2Api.ts:62:  return invoke<SnapshotExportMeta>('chat_v2_export_session_meta', { sessionId });
+src/api/chatV2Api.ts:65:  return invoke<SnapshotMessagesChunk>('chat_v2_export_session_messages', { sessionId, offset, limit });
+src/api/chatV2Api.ts:68:  return invoke<ImportSessionSnapshotResult>('chat_v2_import_session', { snapshotJson });
+src/api/dataGovernance.ts:1039:  return invoke<ChatMigrationCheckResult>('chat_v2_check_migration_status');
+src/api/dataGovernance.ts:1047:  return invoke<ChatMigrationReport>('chat_v2_migrate_legacy_chat');
+src/api/dataGovernance.ts:1055:  return invoke<ChatMigrationReport>('chat_v2_rollback_migration');
+src/api/dataGovernance.ts:109:  return invoke<AuditLogPagedResponse>('data_governance_get_audit_logs', {
+src/api/dataGovernance.ts:1101:  return invoke<MediaCacheStats>('vfs_get_media_cache_stats');
+src/api/dataGovernance.ts:1109:  return invoke<ClearMediaCacheResult>('vfs_clear_media_cache', {
+src/api/dataGovernance.ts:1148:    return await invoke<DiskSpaceCheckResponse>('data_governance_check_disk_space_for_restore', {
+src/api/dataGovernance.ts:1169:  return invoke<string>('data_governance_get_migration_diagnostic_report');
+src/api/dataGovernance.ts:1176:  return invoke<SlotMigrationTestResponse>('data_governance_run_slot_c_empty_db_test');
+src/api/dataGovernance.ts:1183:  return invoke<SlotMigrationTestResponse>('data_governance_run_slot_d_clone_db_test');
+src/api/dataGovernance.ts:1212:  return invoke<RecordConflictRow[]>('data_governance_list_record_conflicts', {
+src/api/dataGovernance.ts:1222:  return invoke<Record<string, number>>('data_governance_count_record_conflicts');
+src/api/dataGovernance.ts:1240:  return invoke<void>('data_governance_resolve_record_conflict', {
+src/api/dataGovernance.ts:1253:  return invoke<number>('data_governance_purge_resolved_conflicts', {
+src/api/dataGovernance.ts:1272:  return invoke<void>('data_governance_mark_blob_deleted', {
+src/api/dataGovernance.ts:1288:  return invoke<void>('data_governance_mark_asset_deleted', {
+src/api/dataGovernance.ts:1308:  return invoke<PruneGapResponse>('data_governance_detect_prune_gap', { cloudConfig });
+src/api/dataGovernance.ts:135:  return invoke<number>('data_governance_cleanup_audit_logs', {
+src/api/dataGovernance.ts:167:  return invoke<BackupConfig>('get_backup_config');
+src/api/dataGovernance.ts:175:  return invoke<void>('set_backup_config', { config });
+src/api/dataGovernance.ts:197:  return invoke<BackupJobStartResponse>('data_governance_run_backup', {
+src/api/dataGovernance.ts:210:  return invoke<BackupInfoResponse[]>('data_governance_get_backup_list');
+src/api/dataGovernance.ts:218:  return invoke<boolean>('data_governance_delete_backup', {
+src/api/dataGovernance.ts:228:  return invoke<BackupVerifyResponse>('data_governance_verify_backup', {
+src/api/dataGovernance.ts:240:  return invoke<AutoVerifyResponse>('data_governance_auto_verify_latest_backup');
+src/api/dataGovernance.ts:256:  return invoke<BackupJobStartResponse>('data_governance_restore_backup', {
+src/api/dataGovernance.ts:344:  return invoke<boolean>('data_governance_cancel_backup', {
+src/api/dataGovernance.ts:354:  return invoke<BackupJobSummary | null>('data_governance_get_backup_job', {
+src/api/dataGovernance.ts:363:  return invoke<BackupJobSummary[]>('data_governance_list_backup_jobs');
+src/api/dataGovernance.ts:510:  return invoke<BackupJobStartResponse>('data_governance_resume_backup_job', {
+src/api/dataGovernance.ts:554:  const raw = await invoke<unknown>('data_governance_list_resumable_jobs');
+src/api/dataGovernance.ts:55:  return invoke<{ is_in_maintenance_mode: boolean }>('data_governance_get_maintenance_status');
+src/api/dataGovernance.ts:570:  return invoke<number>('data_governance_cleanup_persisted_jobs');
+src/api/dataGovernance.ts:599:  return invoke<BackupJobStartResponse>('data_governance_backup_tiered', {
+src/api/dataGovernance.ts:624:  return invoke<BackupJobStartResponse>('data_governance_backup_and_export_zip', {
+src/api/dataGovernance.ts:659:  return invoke<BackupJobStartResponse>('data_governance_export_zip', {
+src/api/dataGovernance.ts:65:  return invoke<SchemaRegistryResponse>('data_governance_get_schema_registry');
+src/api/dataGovernance.ts:681:  return invoke<BackupJobStartResponse>('data_governance_import_zip', {
+src/api/dataGovernance.ts:695:  return invoke<SyncStatusResponse>('data_governance_get_sync_status');
+src/api/dataGovernance.ts:706:  return invoke<ConflictDetectionResponse>('data_governance_detect_conflicts', {
+src/api/dataGovernance.ts:721:  return invoke<SyncResultResponse>('data_governance_resolve_conflicts', {
+src/api/dataGovernance.ts:738:  return invoke<SyncExecutionResponse>('data_governance_run_sync', {
+src/api/dataGovernance.ts:73:  return invoke<MigrationStatusResponse>('data_governance_get_migration_status');
+src/api/dataGovernance.ts:750:  return invoke<SyncExportResponse>('data_governance_export_sync_data', {
+src/api/dataGovernance.ts:764:  return invoke<SyncImportResponse>('data_governance_import_sync_data', {
+src/api/dataGovernance.ts:81:  return invoke<DatabaseDetailResponse | null>('data_governance_get_database_status', {
+src/api/dataGovernance.ts:861:  return invoke<SyncExecutionResponse>('data_governance_run_sync_with_progress', {
+src/api/dataGovernance.ts:91:  return invoke<HealthCheckResponse>('data_governance_run_health_check');
+src/api/dataGovernance.ts:951:  return invoke<AssetScanResponse>('data_governance_scan_assets', {
+src/api/dataGovernance.ts:961:  return invoke<AssetTypeInfo[]>('data_governance_get_asset_types');
+src/api/dataGovernance.ts:986:  return invoke<RestoreWithAssetsResponse>('data_governance_restore_with_assets', {
+src/api/dataGovernance.ts:999:  return invoke<BackupVerifyWithAssetsResponse>('data_governance_verify_backup_with_assets', {
+src/api/debugDatabase.ts:110:  return await invoke<DebugRawMistakeRecord | null>('debug_get_raw_mistake', { id });
+src/api/debugDatabase.ts:120:  return await invoke<DebugRawMistakeRecord[]>('debug_get_raw_mistakes_batch', { ids });
+src/api/debugDatabase.ts:129:  return await invoke<DebugDatabaseStats>('debug_get_database_stats');
+src/api/debugDatabase.ts:146:  return await invoke<DebugIntegrityReport>('debug_verify_mistake_integrity', { id });
+src/api/llmUsageApi.ts:102:    invoke<UsageRecord[]>('llm_usage_recent', { limit }),
+src/api/llmUsageApi.ts:105:    invoke<DailySummary[]>('llm_usage_daily', { startDate, endDate }),
+src/api/llmUsageApi.ts:108:    invoke<number>('llm_usage_cleanup', { beforeDate }),
+src/api/llmUsageApi.ts:90:    invoke<UsageTrendPoint[]>('llm_usage_get_trends', { days, granularity }),
+src/api/llmUsageApi.ts:93:    invoke<ModelSummary[]>('llm_usage_by_model', { startDate, endDate }),
+src/api/llmUsageApi.ts:96:    invoke<CallerTypeSummary[]>('llm_usage_by_caller', { startDate, endDate }),
+src/api/llmUsageApi.ts:99:    invoke<UsageSummary>('llm_usage_summary', { startDate, endDate }),
+src/api/memoryApi.ts:112:  return invoke<MemoryConfig>('memory_get_config');
+src/api/memoryApi.ts:116:  return invoke('memory_set_root_folder', { folderId });
+src/api/memoryApi.ts:120:  return invoke('memory_set_privacy_mode', { enabled });
+src/api/memoryApi.ts:124:  return invoke('memory_set_auto_create_subfolders', { enabled });
+src/api/memoryApi.ts:128:  return invoke('memory_set_default_category', { category });
+src/api/memoryApi.ts:132:  return invoke('memory_set_auto_extract_frequency', { frequency });
+src/api/memoryApi.ts:136:  return invoke<string>('memory_create_root_folder', { title });
+src/api/memoryApi.ts:143:  return invoke<MemorySearchResult[]>('memory_search', { query, topK });
+src/api/memoryApi.ts:149:  return invoke<MemoryReadOutput | null>('memory_read', { noteId });
+src/api/memoryApi.ts:158:  return invoke<MemoryWriteOutput>('memory_write', {
+src/api/memoryApi.ts:171:  return invoke<MemoryListItem[]>('memory_list', {
+src/api/memoryApi.ts:179:  return invoke<FolderTreeNode | null>('memory_get_tree');
+src/api/memoryApi.ts:183:  return invoke('memory_add_relation', { noteIdA, noteIdB });
+src/api/memoryApi.ts:187:  return invoke('memory_remove_relation', { noteIdA, noteIdB });
+src/api/memoryApi.ts:191:  return invoke<string[]>('memory_get_related', { noteId });
+src/api/memoryApi.ts:195:  return invoke('memory_update_tags', { noteId, tags });
+src/api/memoryApi.ts:199:  return invoke<string[]>('memory_get_tags', { noteId });
+src/api/memoryApi.ts:213:  return invoke<MemoryAnkiDocument>('memory_to_anki_document', {
+src/api/memoryApi.ts:228:  return invoke<BatchOperationResult>('memory_batch_delete', { noteIds });
+src/api/memoryApi.ts:235:  return invoke<BatchOperationResult>('memory_batch_move', { noteIds, targetFolderPath });
+src/api/memoryApi.ts:242:  return invoke('memory_move_to_folder', { noteId, targetFolderPath });
+src/api/memoryApi.ts:251:  return invoke<MemoryWriteOutput>('memory_update_by_id', {
+src/api/memoryApi.ts:260:  return invoke('memory_delete', { noteId });
+src/api/memoryApi.ts:276:  return invoke<MemoryProfileSection[]>('memory_get_profile');
+src/api/memoryApi.ts:280:  return invoke<MemoryExportItem[]>('memory_export_all');
+src/api/memoryApi.ts:293:  return invoke<SmartWriteOutput>('memory_write_smart', {
+src/api/memoryApi.ts:309:  return invoke<MemoryBatchWriteOutput>('memory_write_batch', {
+src/api/memoryApi.ts:341:  return invoke<MemoryAuditLogItem[]>('memory_get_audit_logs', params ?? {});
+src/api/questionBankApi.ts:201:  const response = await invoke<{ detail: ExamSheetSessionDetail }>('update_exam_sheet_cards', {
+src/api/settingsApi.ts:12:  return invoke<string | null>('get_setting', { key });
+src/api/settingsApi.ts:17:  await invoke<void>('save_setting', { key, value });
+src/api/settingsApi.ts:22:  await invoke<void>('delete_setting', { key });
+src/api/settingsApi.ts:27:  return invoke<Record<string, string>>('get_settings_by_prefix', { prefix });
+src/api/settingsApi.ts:4: * P1-04 (2026-05-30): 130+ 文件直接调用 invoke('save_setting')/invoke('get_setting')
+src/api/settingsApi.ts:5: * 现在通过此模块集中化，替代分散的 invoke() 调用。
+src/api/vfsFileApi.ts:104:    return invoke('vfs_list_files', {
+src/api/vfsFileApi.ts:112:    return invoke('vfs_delete_file', { fileId });
+src/api/vfsFileApi.ts:116:    return invoke('vfs_get_file_content', { fileId });
+src/api/vfsFileApi.ts:125:    return invoke('textbooks_update_bookmarks', { id: fileId, bookmarks });
+src/api/vfsFileApi.ts:92:    return invoke('vfs_upload_file', { params });
+src/api/vfsFileApi.ts:96:    return invoke('vfs_get_file', { fileId });
+src/api/vfsOcrStorageApi.ts:118:    await invoke<void>('vfs_ocr_delete_result', { id });
+src/api/vfsOcrStorageApi.ts:135:    await invoke<void>('vfs_ocr_mark_exported', { id });
+src/api/vfsOcrStorageApi.ts:154:    const result = await invoke<OcrStorageEntry[]>('vfs_ocr_list_for_export');
+src/api/vfsOcrStorageApi.ts:70:    const result = await invoke<string>('vfs_ocr_store_result', {
+src/api/vfsOcrStorageApi.ts:97:    const result = await invoke<OcrStorageEntry[]>('vfs_ocr_list_results', {
+src/api/vfsPdfProcessingApi.ts:123:  const raw = await invoke<BackendStatusShape | null>('vfs_get_pdf_processing_status', { fileId });
+src/api/vfsPdfProcessingApi.ts:142:  const raw = await invoke<Record<string, BackendStatusShape> | { statuses?: Record<string, BackendStatusShape> }>(
+src/api/vfsPdfProcessingApi.ts:164:  return invoke<boolean>('vfs_cancel_pdf_processing', { fileId });
+src/api/vfsPdfProcessingApi.ts:185:  return invoke<void>('vfs_retry_pdf_processing', { fileId });
+src/api/vfsPdfProcessingApi.ts:202:  return invoke<void>('vfs_start_pdf_processing', { fileId });
+src/api/vfsRagApi.ts:113:    const result = await invoke<VfsRagSearchOutput>('vfs_rag_search', {
+src/api/vfsRagApi.ts:194:    const result = await invoke<VfsLanceStats>('vfs_get_lance_stats', {
+src/api/vfsRagApi.ts:218:    const result = await invoke<number>('vfs_optimize_lance', {
+src/api/vfsRagApi.ts:386:    const result = await invoke<IndexDiagnosticInfo>('vfs_debug_index_status', {
+src/api/vfsRagApi.ts:406:    const result = await invoke<number>('vfs_reset_disabled_to_pending');
+src/api/vfsRagApi.ts:424:    const result = await invoke<number>('vfs_reset_indexed_without_embeddings');
+src/api/vfsRagApi.ts:444:    const result = await invoke<number>('vfs_reset_all_index_state');
+src/api/vfsRagApi.ts:545:    const result = await invoke<VfsMultimodalIndexOutput>('vfs_multimodal_index', {
+src/api/vfsRagApi.ts:570:    const result = await invoke<VfsMultimodalSearchOutput[]>('vfs_multimodal_search', {
+src/api/vfsRagApi.ts:590:    const result = await invoke<VfsMultimodalStats>('vfs_multimodal_stats');
+src/api/vfsRagApi.ts:608:    await invoke<void>('vfs_multimodal_delete', { resourceId });
+src/api/vfsRagApi.ts:652:    const result = await invoke<VfsMultimodalIndexResourceOutput>('vfs_multimodal_index_resource', {
+src/api/vfsRagApi.ts:703:    const result = await invoke<PdfPageImageResult>('vfs_get_pdf_page_image', {
+src/api/vfsRagApi.ts:753:    const result = await invoke<LanceTableDiagnostic[]>('vfs_diagnose_lance_schema', {
+src/api/vfsUnifiedIndexApi.ts:106:  return invoke<boolean>('vfs_reindex_unit', { unitId, mode });
+src/api/vfsUnifiedIndexApi.ts:116:  return invoke<BatchIndexResult>('vfs_unified_batch_index', { mode, batchSize });
+src/api/vfsUnifiedIndexApi.ts:123:  return invoke<UnitIndexStatus[]>('vfs_sync_resource_units', {
+src/api/vfsUnifiedIndexApi.ts:154:  return invoke<DeleteIndexResult>('vfs_delete_resource_index', { resourceId });
+src/api/vfsUnifiedIndexApi.ts:161:  return invoke<EmbeddingDimInfo[]>('vfs_list_embedding_dims');
+src/api/vfsUnifiedIndexApi.ts:177:  const result = await invoke<ResourceIndexStatusSummary>('vfs_get_all_index_status', {
+src/api/vfsUnifiedIndexApi.ts:194:  return invoke<number>('vfs_reindex_resource', { resourceId });
+src/api/vfsUnifiedIndexApi.ts:202:  return invoke('vfs_batch_index_pending', { batchSize: batchSize ?? 10 });
+src/api/vfsUnifiedIndexApi.ts:210:  return invoke<VfsEmbeddingDimension[]>('vfs_list_dimensions');
+src/api/vfsUnifiedIndexApi.ts:226:  return invoke<boolean>('vfs_assign_dimension_model', {
+src/api/vfsUnifiedIndexApi.ts:252:  return invoke<CreateDimensionResult>('vfs_create_dimension', {
+src/api/vfsUnifiedIndexApi.ts:271:  return invoke<DeleteDimensionResult>('vfs_delete_dimension', {
+src/api/vfsUnifiedIndexApi.ts:279:  return invoke<number[]>('vfs_get_preset_dimensions');
+src/api/vfsUnifiedIndexApi.ts:284:  return invoke<[number, number]>('vfs_get_dimension_range');
+src/api/vfsUnifiedIndexApi.ts:302:  return invoke<boolean>('vfs_set_default_embedding_dimension', {
+src/api/vfsUnifiedIndexApi.ts:318:  return invoke<VfsEmbeddingDimension | null>('vfs_get_default_embedding_dimension', {
+src/api/vfsUnifiedIndexApi.ts:332:  return invoke<boolean>('vfs_clear_default_embedding_dimension', {
+src/api/vfsUnifiedIndexApi.ts:379:  return invoke<ResourceOcrInfo>('vfs_get_resource_ocr_info', { resourceId });
+src/api/vfsUnifiedIndexApi.ts:389:  return invoke<boolean>('vfs_clear_resource_ocr', { resourceId });
+src/api/vfsUnifiedIndexApi.ts:397:  return invoke<TextChunkInfo[]>('vfs_get_resource_text_chunks', { resourceId });
+src/api/vfsUnifiedIndexApi.ts:92:  return invoke<IndexStatusSummary>('vfs_unified_index_status');
+src/api/vfsUnifiedIndexApi.ts:99:  return invoke<UnitIndexStatus[]>('vfs_get_resource_units', { resourceId });
+src/components/ApiConfigRecovery.tsx:25:      const result = await invoke<ConfigStatus>('check_api_config_status');
+src/components/ApiConfigRecovery.tsx:38:      const result = await invoke<string>('restore_default_api_configs');
+src/components/CsvImportDialog.tsx:219:      const result = await invoke<CsvPreviewResult>('get_csv_preview', {
+src/components/CsvImportDialog.tsx:351:      const result = await invoke<CsvImportResult>('import_questions_csv', {
+src/components/DataImportExport.tsx:1328:      const dbResult = await invoke<{ path: string; row_count: number; wal_mode: boolean }>('create_test_database_in_slot', {
+src/components/DataImportExport.tsx:1337:      const filesResult = await invoke<{ directory: string; file_count: number; total_size: number }>('create_test_files_in_slot', {
+src/components/DataImportExport.tsx:1354:      const edgeCaseResult = await invoke<{
+src/components/DataImportExport.tsx:1376:        const symlinkResult = await invoke<string>('create_symlink_test', { slotDir: slotInfo.slot_c_dir });
+src/components/DataImportExport.tsx:1487:      await invoke('clear_test_slots', { slotName: 'slotC' });
+src/components/DataImportExport.tsx:1488:      await invoke('clear_test_slots', { slotName: 'slotD' });
+src/components/ExamSheetUploader.tsx:479:      const response = await invoke<ExamSheetSessionDetail>('import_question_bank_stream', {
+src/components/ExamSheetUploader.tsx:661:      const response = await invoke<ExamSheetSessionDetail>('import_question_bank_stream', {
+src/components/ImageCropDialog.tsx:184:      await invoke('qbank_crop_source_image', {
+src/components/ImageCropDialog.tsx:81:        const images = await invoke<SourceImageInfo[]>('qbank_get_source_images', {
+src/components/ModernSidebar.tsx:457:      invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/components/ModernSidebar.tsx:462:      invoke<SessionGroup[]>('chat_v2_list_groups', {
+src/components/ModernSidebar.tsx:467:      invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/components/ModernSidebar.tsx:570:      await invoke('chat_v2_update_session_settings', {
+src/components/ModernSidebar.tsx:626:      const updatedSession = await invoke<ChatSession | null>('chat_v2_update_session_settings', {
+src/components/ModernSidebar.tsx:655:      await invoke('chat_v2_archive_session', { sessionId });
+src/components/ModernSidebar.tsx:717:      const updatedGroup = await invoke<SessionGroup | null>('chat_v2_update_group', {
+src/components/ModernSidebar.tsx:799:      await invoke('chat_v2_reorder_groups', { groupIds: reorderedIds });
+src/components/QuestionBankEditor.tsx:717:            const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/components/QuestionBankExportDialog.tsx:337:      const result = await invoke<{
+src/components/QuestionFavoritesView.tsx:100:      const result = await invoke<{ questions: StoreQuestion[]; total: number }>('qbank_list_questions', {
+src/components/QuestionHistoryView.tsx:107:      const result = await invoke<RawQuestionHistory[]>('qbank_get_history', {
+src/components/QuestionInlineEditor.tsx:161:        const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/components/QuestionInlineEditor.tsx:207:        const result = await invoke<{ sourceId: string; resourceHash: string }>('vfs_upload_attachment', {
+src/components/QuestionInlineEditor.tsx:331:        const raw = await invoke<Record<string, unknown>>('qbank_create_question', { params });
+src/components/QuestionInlineEditor.tsx:362:      await invoke('qbank_update_question', {
+src/components/TemplateManagementPage.tsx:233:      const response = await invoke<TemplateExportResponse>('export_template', { templateId: template.id });
+src/components/TemplateManagementPage.tsx:362:      const result = await invoke<string>('import_custom_templates_bulk', {
+src/components/TemplateManagementPage.tsx:434:      const result = await invoke<string>('import_builtin_templates');
+src/components/TranslateWorkbench.tsx:271:            const extracted = await invoke<string>('parse_document_from_base64', {
+src/components/WebSearchAdvancedConfig.tsx:120:        invoke<{ default_sites: string[]; user_config: CnWhitelistConfig }>(
+src/components/WebSearchAdvancedConfig.tsx:149:        const assignments = await invoke<{
+src/components/WebSearchAdvancedConfig.tsx:154:          const apiConfigs = await invoke<any[]>('get_api_configurations');
+src/components/anki/TaskDashboardPage.tsx:372:        invoke<AnkiCard[]>('enhanced_anki_get_document_cards', { documentId: session.documentId }),
+src/components/anki/TaskDashboardPage.tsx:373:        invoke<CustomAnkiTemplate[]>('get_all_custom_templates').catch(err => {
+src/components/anki/TaskDashboardPage.tsx:426:        await invoke('enhanced_anki_pause_document_processing', { documentId: session.documentId });
+src/components/anki/TaskDashboardPage.tsx:429:        await invoke('enhanced_anki_resume_document_processing', { documentId: session.documentId });
+src/components/anki/TaskDashboardPage.tsx:433:        const tasks = await invoke<{ id: string; status: string }[]>(
+src/components/anki/TaskDashboardPage.tsx:445:            failedTasks.map(ft => invoke('enhanced_anki_trigger_task_processing', { task_id: ft.id })),
+src/components/anki/TaskDashboardPage.tsx:456:        await invoke('enhanced_anki_delete_document_session', { documentId: session.documentId });
+src/components/anki/TaskDashboardPage.tsx:489:        invoke<AnkiCard[]>(
+src/components/anki/TaskDashboardPage.tsx:493:        invoke<AnkiCard[]>(
+src/components/anki/TaskDashboardPage.tsx:877:        invoke<DocumentSession[]>('enhanced_anki_list_document_sessions', { limit: DASHBOARD_SESSION_LIMIT }),
+src/components/anki/TaskDashboardPage.tsx:878:        invoke<AnkiStats>('enhanced_anki_get_stats'),
+src/components/anki/TaskDashboardPage.tsx:930:      const count = await invoke<number>('enhanced_anki_recover_stuck_tasks');
+src/components/anki/cardforge/engines/CardAgent.ts:1452:      const tasks = await invoke<BackendDocumentTask[]>('enhanced_anki_get_document_tasks', { documentId });
+src/components/anki/cardforge/engines/CardAgent.ts:1464:      const tasks = await invoke<BackendDocumentTask[]>('enhanced_anki_get_document_tasks', { documentId });
+src/components/anki/cardforge/engines/CardAgent.ts:399:        const documentId = await invoke<string>('enhanced_anki_start_document_processing', {
+src/components/anki/cardforge/engines/CardAgent.ts:450:          await invoke('enhanced_anki_pause_document_processing', { documentId: input.documentId });
+src/components/anki/cardforge/engines/CardAgent.ts:457:          await invoke('enhanced_anki_resume_document_processing', { documentId: input.documentId });
+src/components/anki/cardforge/engines/CardAgent.ts:472:          await invoke('enhanced_anki_trigger_task_processing', {
+src/components/anki/cardforge/engines/CardAgent.ts:481:          await invoke('enhanced_anki_delete_document_session', { documentId: input.documentId });
+src/components/anki/cardforge/engines/CardAgent.ts:569:            const noteIds = await invoke<(number | null)[]>('anki_connect_add_cards', {
+src/components/anki/cardforge/engines/CardAgent.ts:722:        const llmResult = await invoke<{
+src/components/anki/cardforge/engines/CardAgent.ts:927:              await invoke('chat_v2_anki_cards_result', {
+src/components/anki/cardforge/engines/SegmentEngine.ts:265:      const response = await invoke<{
+src/components/anki/cardforge/engines/TaskController.ts:100:      await invoke<void>('enhanced_anki_pause_document_processing', {
+src/components/anki/cardforge/engines/TaskController.ts:156:      await invoke<void>('enhanced_anki_resume_document_processing', {
+src/components/anki/cardforge/engines/TaskController.ts:220:      await invoke<void>('enhanced_anki_trigger_task_processing', {
+src/components/anki/cardforge/engines/TaskController.ts:278:      await invoke<void>('enhanced_anki_delete_document_session', {
+src/components/anki/cardforge/engines/TaskController.ts:328:      const backendTasks = await invoke<BackendTask[]>('enhanced_anki_get_document_tasks', {
+src/components/anki/cardforge/engines/TaskController.ts:427:        return await invoke<DocumentState>('enhanced_anki_get_document_processing_state', {
+src/components/anki/cardforge/engines/TaskController.ts:432:        return await invoke<DocumentState>('get_document_state', {
+src/components/crepe/features/imageUpload.ts:108:        const saved = await invoke<{ absolute_path: string; relative_path: string }>('notes_save_asset', {
+src/components/crepe/features/imageUpload.ts:19:  return invoke<string>('get_image_as_base64', { relativePath: path });
+src/components/shared/UnifiedDragDropZone.tsx:436:            const fileSize = await invoke<number>('get_file_size', { path: p });
+src/components/shared/UnifiedDragDropZone.tsx:449:            const rawBytes = await invoke<number[]>('read_file_bytes', { path: p });
+src/config/rag.ts:4:    const val = await invoke<string | null>('get_setting', { key: 'graph_rag.threshold' });
+src/data/ankiTemplates.ts:278:    const templateId = await invoke<string>('create_custom_template', { request: normalizedTemplate });
+src/data/ankiTemplates.ts:287:    await invoke('delete_custom_template', { templateId });
+src/data/ankiTemplates.ts:306:    await invoke('update_custom_template', { templateId, request });
+src/data/ankiTemplates.ts:315:      this.userDefaultTemplateId = await invoke<string | null>('get_default_template_id');
+src/data/ankiTemplates.ts:326:      await invoke('set_default_template', { templateId });
+src/data/ankiTemplates.ts:36:        await invoke('import_builtin_templates');
+src/data/ankiTemplates.ts:43:        invoke<CustomAnkiTemplate[]>('get_all_custom_templates'),
+src/data/ankiTemplates.ts:44:        invoke<string | null>('get_default_template_id').catch(() => null)
+src/data/ankiTemplates.ts:49:          await invoke('import_builtin_templates');
+src/data/ankiTemplates.ts:50:          allTemplates = await invoke<CustomAnkiTemplate[]>('get_all_custom_templates');
+src/data/ankiTemplates.ts:51:          defaultTemplateId = await invoke<string | null>('get_default_template_id').catch(() => null);
+src/data/ankiTemplates.ts:69:          return invoke('update_custom_template', { templateId: t.id, request: patched }).catch(err => {
+src/debug-panel/plugins/ThinkingBlockDebugPlugin.tsx:152:      const response = await invoke<{
+src/dstu/adapters/notesDstuAdapter.ts:221:      const node = await invoke<DstuNode>('notes_import_markdown', {
+src/dstu/adapters/notesDstuAdapter.ts:243:      const response = await invoke<ImportMarkdownBatchResponse>('notes_import_markdown_batch', {
+src/dstu/adapters/textbookDstuAdapter.ts:177:      const rawResults = await invoke<any[]>('textbooks_add', { sources: filePaths, folderId: folderId || null });
+src/dstu/api.ts:248:    const result = await invoke<DstuNode[]>('dstu_list', { path, options });
+src/dstu/api.ts:263:    const result = await invoke<DstuNode | null>('dstu_get', { path });
+src/dstu/api.ts:314:    const result = await invoke<DstuNode>('dstu_create', {
+src/dstu/api.ts:374:    const result = await invoke<DstuNode>('dstu_update', { path, content, resourceType });
+src/dstu/api.ts:403:    await invoke<void>('dstu_delete', { path });
+src/dstu/api.ts:427:    const result = await invoke<DstuNode>('dstu_move', {
+src/dstu/api.ts:459:    const result = await invoke<DstuNode>('dstu_rename', {
+src/dstu/api.ts:503:    const result = await invoke<DstuNode>('dstu_copy', {
+src/dstu/api.ts:548:    const result = await invoke<DstuNode[]>('dstu_search', { query, options });
+src/dstu/api.ts:562:    const result = await invoke<string>('dstu_get_content', { path });
+src/dstu/api.ts:580:    await invoke<void>('dstu_set_metadata', { path, metadata });
+src/dstu/api.ts:607:    await invoke<void>('dstu_set_favorite', { path, favorite: isFavorite });
+src/dstu/api.ts:640:      await invoke('dstu_watch', { path });
+src/dstu/api.ts:643:        await invoke('dstu_unwatch', { path }).catch((err) => { console.warn('[DSTU] unwatch failed:', err); });
+src/dstu/api.ts:705:    invoke('dstu_unwatch', { path }).catch((error) => {
+src/dstu/api.ts:724:    const result = await invoke<number>('dstu_delete_many', { paths });
+src/dstu/api.ts:753:    const result = await invoke<number>('dstu_restore_many', { paths });
+src/dstu/api.ts:783:    const result = await invoke<number>('dstu_move_many', { paths, dest_folder: destFolder });
+src/dstu/api.ts:810:    const result = await invoke<DstuNode[]>('dstu_search_in_folder', {
+src/dstu/api.ts:830:    const result = await invoke<DstuNode>('dstu_restore', { path });
+src/dstu/api.ts:855:    await invoke<void>('dstu_purge', { path });
+src/dstu/api.ts:879:    const result = await invoke<DstuNode[]>('dstu_list_deleted', {
+src/dstu/api.ts:897:    const result = await invoke<number>('dstu_purge_all', {
+src/dstu/api.ts:935:    const result = await invoke<string[]>('dstu_export_formats', { path });
+src/dstu/api.ts:952:    const result = await invoke<DstuExportResult>('dstu_export', { path, format });
+src/dstu/api/folderApi.ts:116:    await invoke<void>('dstu_folder_rename', {
+src/dstu/api/folderApi.ts:135:    await invoke<void>('dstu_folder_delete', {
+src/dstu/api/folderApi.ts:161:    await invoke<void>('dstu_folder_move', {
+src/dstu/api/folderApi.ts:192:    await invoke<void>('dstu_folder_set_expanded', {
+src/dstu/api/folderApi.ts:217:    const result = await invoke<VfsFolderItem>('dstu_folder_add_item', {
+src/dstu/api/folderApi.ts:237:    await invoke<void>('dstu_folder_remove_item', {
+src/dstu/api/folderApi.ts:269:    await invoke<void>('dstu_folder_move_item', {
+src/dstu/api/folderApi.ts:305:    const result = await invoke<VfsFolder[]>('dstu_folder_list', {});
+src/dstu/api/folderApi.ts:319:    const result = await invoke<FolderTreeNode[]>('dstu_folder_get_tree', {});
+src/dstu/api/folderApi.ts:333:    const result = await invoke<VfsFolderItem[]>('dstu_folder_get_items', {
+src/dstu/api/folderApi.ts:357:    const result = await invoke<FolderResourcesResult>('dstu_folder_get_all_resources', {
+src/dstu/api/folderApi.ts:379:    await invoke<void>('dstu_folder_reorder', {
+src/dstu/api/folderApi.ts:412:    const result = await invoke<BreadcrumbItem[]>('dstu_folder_get_breadcrumbs', {
+src/dstu/api/folderApi.ts:428:    await invoke<void>('dstu_folder_reorder_items', {
+src/dstu/api/folderApi.ts:76:    const result = await invoke<VfsFolder>('dstu_folder_create', {
+src/dstu/api/folderApi.ts:97:    const result = await invoke<VfsFolder | null>('dstu_folder_get', {
+src/dstu/api/pathApi.ts:108:    const result = await invoke<DstuNode | null>('dstu_get_resource_by_path', {
+src/dstu/api/pathApi.ts:141:    const result = await invoke<ResourceLocation>('dstu_move_to_folder', {
+src/dstu/api/pathApi.ts:171:    const result = await invoke<BatchMoveResult>('dstu_batch_move', {
+src/dstu/api/pathApi.ts:209:    const result = await invoke<number>('dstu_refresh_path_cache', {
+src/dstu/api/pathApi.ts:229:    const result = await invoke<string>('dstu_get_path_by_id', {
+src/dstu/api/pathApi.ts:43:    const result = await invoke<ParsedPath>('dstu_parse_path', { path });
+src/dstu/api/pathApi.ts:65:    const result = await invoke<string>('dstu_build_path', {
+src/dstu/api/pathApi.ts:90:    const result = await invoke<ResourceLocation>('dstu_get_resource_location', {
+src/dstu/api/trashApi.ts:101:    const count = await invoke<number>('dstu_empty_trash', {});
+src/dstu/api/trashApi.ts:118:    await invoke('dstu_permanently_delete', { id, itemType });
+src/dstu/api/trashApi.ts:52:    await invoke('dstu_soft_delete', { id, itemType });
+src/dstu/api/trashApi.ts:68:    await invoke('dstu_trash_restore', { id, itemType });
+src/dstu/api/trashApi.ts:87:    const result = await invoke<DstuNode[]>('dstu_list_trash', { limit, offset });
+src/essay-grading/essayGradingApi.ts:119:    return await invoke<number>('essay_grading_delete_session', { sessionId });
+src/essay-grading/essayGradingApi.ts:134:    const [items, total] = await invoke<[GradingSessionListItem[], number]>(
+src/essay-grading/essayGradingApi.ts:153:    return await invoke<boolean>('essay_grading_toggle_favorite', { sessionId });
+src/essay-grading/essayGradingApi.ts:164:    return await invoke<GradingRound[]>('essay_grading_get_rounds', { sessionId });
+src/essay-grading/essayGradingApi.ts:178:    return await invoke<GradingRound | null>('essay_grading_get_round', {
+src/essay-grading/essayGradingApi.ts:192:    return await invoke<number>('essay_grading_get_latest_round_number', {
+src/essay-grading/essayGradingApi.ts:289:    const modes = await invoke<GradingMode[]>('essay_grading_get_modes');
+src/essay-grading/essayGradingApi.ts:302:    return await invoke<GradingMode | null>('essay_grading_get_mode', { modeId: canonicalModeId });
+src/essay-grading/essayGradingApi.ts:332:    return await invoke<GradingMode>('essay_grading_create_custom_mode', { input });
+src/essay-grading/essayGradingApi.ts:343:    return await invoke<GradingMode>('essay_grading_update_custom_mode', { input });
+src/essay-grading/essayGradingApi.ts:354:    await invoke('essay_grading_delete_custom_mode', { modeId });
+src/essay-grading/essayGradingApi.ts:365:    return await invoke<GradingMode[]>('essay_grading_list_custom_modes');
+src/essay-grading/essayGradingApi.ts:385:    return await invoke<GradingMode>('essay_grading_save_builtin_override', { input });
+src/essay-grading/essayGradingApi.ts:396:    return await invoke<GradingMode>('essay_grading_reset_builtin_mode', { builtinId });
+src/essay-grading/essayGradingApi.ts:407:    return await invoke<boolean>('essay_grading_has_builtin_override', { builtinId });
+src/essay-grading/essayGradingApi.ts:427:    return await invoke<ModelInfo[]>('essay_grading_get_models');
+src/essay-grading/essayGradingApi.ts:67:    return await invoke<GradingSession>('essay_grading_create_session', {
+src/essay-grading/essayGradingApi.ts:83:    return await invoke<GradingSession | null>('essay_grading_get_session', {
+src/essay-grading/essayGradingApi.ts:99:    await invoke('essay_grading_update_session', {
+src/essay-grading/useEssayGradingStream.ts:218:            invoke('cancel_stream', { streamEventName }).catch(console.warn);
+src/essay-grading/useEssayGradingStream.ts:316:        await invoke('essay_grading_stream', { request });
+src/essay-grading/useEssayGradingStream.ts:360:      await invoke('cancel_stream', { streamEventName });
+src/essay-grading/useEssayGradingStream.ts:421:        invoke('cancel_stream', { streamEventName }).catch((err) => {
+src/features/chat/adapters/TauriAdapter.ts:2062:      const returnedAssistantMessageId = await invoke<string>('chat_v2_send_message', {
+src/features/chat/adapters/TauriAdapter.ts:2295:      const returnedAssistantMessageId = await invoke<string>('chat_v2_send_message', {
+src/features/chat/adapters/TauriAdapter.ts:2385:      const backendAbort = invoke('chat_v2_cancel_stream', {
+src/features/chat/adapters/TauriAdapter.ts:2453:      const result = await invoke<{
+src/features/chat/adapters/TauriAdapter.ts:2560:      await invoke('chat_v2_delete_message', {
+src/features/chat/adapters/TauriAdapter.ts:2677:      const result = await invoke<{
+src/features/chat/adapters/TauriAdapter.ts:2765:      const resultMessageId = await invoke<string>('chat_v2_continue_message', {
+src/features/chat/adapters/TauriAdapter.ts:2812:      const response = await invoke<LoadSessionResponseType>('chat_v2_load_session', {
+src/features/chat/adapters/TauriAdapter.ts:2947:      await invoke('chat_v2_save_session', {
+src/features/chat/adapters/TauriAdapter.ts:2969:      const session = await invoke<{ id: string }>('chat_v2_create_session', {
+src/features/chat/adapters/TauriAdapter.ts:2990:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/adapters/TauriAdapter.ts:3009:      await invoke('chat_v2_archive_session', {
+src/features/chat/adapters/TauriAdapter.ts:3034:      await invoke('chat_v2_switch_variant', {
+src/features/chat/adapters/TauriAdapter.ts:3061:      const result = await invoke<{
+src/features/chat/adapters/TauriAdapter.ts:3123:      await invoke('chat_v2_retry_variant', {
+src/features/chat/adapters/TauriAdapter.ts:3171:      await invoke('chat_v2_retry_variants', {
+src/features/chat/adapters/TauriAdapter.ts:3196:      await invoke('chat_v2_cancel_variant', {
+src/features/chat/adapters/TauriAdapter.ts:3217:      await invoke('chat_v2_update_block_content', {
+src/features/chat/adapters/TauriAdapter.ts:3238:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/adapters/TauriAdapter.ts:3265:      await invoke('chat_v2_upsert_streaming_block', {
+src/features/chat/adapters/TauriAdapter.ts:3402:      const configs = await invoke<Array<{ id?: string | null }>>('get_api_configurations');
+src/features/chat/adapters/TauriAdapter.ts:3423:      const assignments = await invoke<ModelAssignments>('get_model_assignments');
+src/features/chat/anki/index.tsx:168:    const filePath: string = await invoke('anki_connect_export_multi_apkg', {
+src/features/chat/anki/index.tsx:230:    const results = await invoke<Array<number | null>>('anki_connect_add_cards', {
+src/features/chat/components/ExplainPopover.tsx:192:    invoke<{ assistant_message: string; input_tokens: number; output_tokens: number }>(
+src/features/chat/components/MessageItem.tsx:1077:      const newSession = await invoke('chat_v2_branch_session', {
+src/features/chat/components/ToolApprovalCard.tsx:128:        await invoke('chat_v2_tool_approval_respond', {
+src/features/chat/components/TranslationPopover.tsx:154:      invoke<ModelAssignments | null>('get_model_assignments').catch(() => null),
+src/features/chat/components/TranslationPopover.tsx:155:      invoke<ApiConfig[]>('get_api_configurations').catch(() => [] as ApiConfig[]),
+src/features/chat/components/TranslationPopover.tsx:20: * - 调用 invoke('cancel_stream', { streamEventName }) 通知后端中止 SSE
+src/features/chat/components/TranslationPopover.tsx:262:        await invoke('cancel_stream', { streamEventName: eventName });
+src/features/chat/components/TranslationPopover.tsx:452:        await invoke(command, {
+src/features/chat/components/input-bar/BlockingApprovalBar.tsx:100:          await invoke('chat_v2_tool_approval_respond', {
+src/features/chat/components/input-bar/BlockingAskUserBar.tsx:135:            await invoke('chat_v2_ask_user_respond', {
+src/features/chat/components/input-bar/InputBarV2.tsx:553:      void invoke<ModelProfileDisplayRecord[]>('get_model_profiles')
+src/features/chat/components/input-bar/ModelPicker.tsx:153:      const configs = await invoke<ApiModelConfig[]>('get_api_configurations');
+src/features/chat/components/input-bar/ModelPicker.tsx:163:        const vendorConfigs = await invoke<VendorConfigSlim[]>('get_vendor_configs');
+src/features/chat/components/input-bar/ModelPicker.tsx:187:        const assignments = await invoke<Record<string, string | null>>('get_model_assignments');
+src/features/chat/components/input-bar/ModelPicker.tsx:317:      const currentAssignments = await invoke<ModelAssignments>('get_model_assignments');
+src/features/chat/components/input-bar/ModelPicker.tsx:322:      await invoke<void>('save_model_assignments', { assignments: newAssignments });
+src/features/chat/context/blobApi.ts:115:    const result = await invoke<VfsBlobBase64Result>('vfs_get_blob_base64', {
+src/features/chat/context/vfsRefApi.ts:150:  return await invoke<VfsContextRefData>('vfs_get_resource_refs', {
+src/features/chat/context/vfsRefApi.ts:163:  return await invoke<ResolvedResource[]>('vfs_resolve_resource_refs', {
+src/features/chat/context/vfsRefApi.ts:172:  return await invoke<string | null>('vfs_get_resource_path', {
+src/features/chat/context/vfsRefApi.ts:181:  return await invoke<number>('vfs_update_path_cache', {
+src/features/chat/context/vfsRefApi.ts:534:    await invoke('vfs_update_resource_hash', {
+src/features/chat/context/vfsRefApi.ts:573:    const count = await invoke<number>('vfs_get_resource_ref_count', {
+src/features/chat/context/vfsRefApi.ts:665:  const result = await invoke<UploadAttachmentResult>('vfs_upload_attachment', {
+src/features/chat/context/vfsRefApi.ts:700:  const result = await invoke<UploadAttachmentResult>('vfs_upload_attachment_by_path', {
+src/features/chat/context/vfsRefApiEnhancements.ts:603:      invoke<ResolvedResource[]>('vfs_resolve_resource_refs', { refs: uncachedRefs }),
+src/features/chat/core/session/createSessionWithDefaults.ts:33:  const session = await invoke<ChatSession>('chat_v2_create_session', {
+src/features/chat/core/store/restoreActions.ts:771:                  const group = await invoke<{ pinnedResourceIds?: string[] } | null>('chat_v2_get_group', { groupId: currentGroupId });
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1165:      const batch = await invoke<Array<{ id: string; title?: string }>>('chat_v2_list_sessions', {
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1183:      const sessionData = await invoke<{
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1212:      await invoke('chat_v2_delete_session', { sessionId: sid });
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1225:        await invoke('vfs_delete_attachment', { attachmentId: attId });
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1296:    const pdfiumStatus = await invoke<Record<string, string>>('test_pdfium_status');
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1309:  const origResult = await invoke<{
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:1341:  const saltResult = await invoke<{
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:518:      await invoke('chat_v2_update_block_tool_output', {
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:525:      const sessionData = await invoke<{ blocks?: Array<{ id: string; toolOutput?: unknown }> }>('chat_v2_load_session', { sessionId: sid });
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:652:        const dbCards = await invoke<unknown[]>('enhanced_anki_get_document_cards', { documentId });
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:911:        const batch = await invoke<Array<{ id: string; title?: string }>>('chat_v2_list_sessions', {
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:918:              await invoke('chat_v2_delete_session', { sessionId: s.id });
+src/features/chat/debug/chatInteractionTestPlugin.ts:1573:      const batch = await invoke<Array<{ id: string; title?: string }>>('chat_v2_list_sessions', {
+src/features/chat/debug/chatInteractionTestPlugin.ts:1591:      await invoke('chat_v2_delete_session', { sessionId: sid });
+src/features/chat/debug/chatInteractionTestPlugin.ts:548:    const data = await invoke<{
+src/features/chat/debug/citationTestPlugin.ts:1085:      const batch = await invoke<Array<{ id: string; title?: string }>>('chat_v2_list_sessions', {
+src/features/chat/debug/citationTestPlugin.ts:1103:      await invoke('chat_v2_delete_session', { sessionId: sid });
+src/features/chat/debug/citationTestPlugin.ts:840:    const loaded = await invoke<any>('chat_v2_load_session', { sessionId });
+src/features/chat/debug/multiVariantTestPlugin.ts:1224:        const sessions = await invoke<Array<{ id: string; title: string }>>('chat_v2_list_sessions', { status, offset, limit });
+src/features/chat/debug/multiVariantTestPlugin.ts:1229:              await invoke('chat_v2_delete_session', { sessionId: s.id });
+src/features/chat/debug/multiVariantTestPlugin.ts:376:    const data = await invoke<{ messages?: Array<{ id: string; role: string; variants?: Array<{ id: string; modelId?: string; status?: string; blockIds?: string[] }>; activeVariantId?: string }> }>('chat_v2_load_session', { sessionId });
+src/features/chat/debug/multiVariantTestPlugin.ts:400:    const data = await invoke<{ messages?: PersistMsg[] }>('chat_v2_load_session', { sessionId });
+src/features/chat/debug/multiVariantTestPlugin.ts:916:      const data = await invoke<{ messages?: Array<{ id: string; role: string; variants?: Array<{ id: string; modelId?: string }> }> }>('chat_v2_load_session', { sessionId: sid });
+src/features/chat/debug/sessionSwitchPerf.ts:52:  | 'load_invoke_start'       // invoke('chat_v2_load_session') 开始
+src/features/chat/dev/playground/eval/cases.ts:74:      await invoke('chat_v2_send_message', { sessionId, content: text, messageId: id });
+src/features/chat/hooks/useAvailableModels.ts:287:      const assignments = await invoke<{ model2_config_id?: string | null }>('get_model_assignments');
+src/features/chat/hooks/useAvailableModels.ts:91:  const configs = await invoke<ModelConfig[]>('get_api_configurations');
+src/features/chat/hooks/useContentSearch.ts:48:    invoke<ContentSearchResult[]>('chat_v2_search_content', {
+src/features/chat/hooks/useDevShowRawRequest.ts:102:  invoke<string>('get_setting', { key: 'debug.filter_config' })
+src/features/chat/hooks/useDevShowRawRequest.ts:121:  invoke<string>('get_setting', { key: 'debug.filter_level' })
+src/features/chat/hooks/useDevShowRawRequest.ts:50:        const v = await invoke<string>('get_setting', { key: 'dev.show_raw_request' });
+src/features/chat/hooks/useGroupManagement.ts:133:      await invoke('chat_v2_reorder_groups', { groupIds });
+src/features/chat/hooks/useGroupManagement.ts:33:      const result = await invoke<SessionGroup[]>('chat_v2_list_groups', {
+src/features/chat/hooks/useGroupManagement.ts:47:      const group = await invoke<SessionGroup>('chat_v2_create_group', {
+src/features/chat/hooks/useGroupManagement.ts:68:      const group = await invoke<SessionGroup>('chat_v2_update_group', {
+src/features/chat/hooks/useGroupManagement.ts:90:      await invoke<SessionGroup>('chat_v2_update_group', {
+src/features/chat/hooks/useSessionManagement.ts:103:      const result = await invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/chat/hooks/useSessionManagement.ts:140:      await invoke('chat_v2_delete_session', { sessionId });
+src/features/chat/hooks/useSessionManagement.ts:165:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/hooks/useSessionManagement.ts:69:      const result = await invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/chat/hooks/useSessionTags.ts:44:      const data = await invoke<[string, number][]>('chat_v2_list_all_tags');
+src/features/chat/hooks/useSessionTags.ts:55:      const data = await invoke<Record<string, string[]>>('chat_v2_get_tags_batch', {
+src/features/chat/hooks/useSessionTags.ts:76:      await invoke('chat_v2_add_tag', { sessionId, tag: trimmed });
+src/features/chat/hooks/useSessionTags.ts:93:      await invoke('chat_v2_remove_tag', { sessionId, tag });
+src/features/chat/pages/ChatV2Page.tsx:417:      const promotedSession = await invoke<ChatSession>('chat_v2_update_session_settings', {
+src/features/chat/pages/SessionItemRenderer.tsx:276:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/pages/useChatPageEvents.ts:144:      const session = await invoke<ChatSession | null>('chat_v2_get_session', { sessionId: sid });
+src/features/chat/pages/useChatPageEvents.ts:252:      const resource = await invoke<{
+src/features/chat/pages/useChatPageEvents.ts:386:                const resource = await invoke<{
+src/features/chat/pages/useChatPageEvents.ts:402:              const resource = await invoke<{
+src/features/chat/pages/useChatPageEvents.ts:605:            await invoke('chat_v2_update_session_settings', {
+src/features/chat/pages/useSessionEdit.ts:133:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/pages/useSessionEdit.ts:153:      await invoke('chat_v2_archive_session', { sessionId });
+src/features/chat/pages/useSessionEdit.ts:283:      await invoke('chat_v2_move_session_to_group', {
+src/features/chat/pages/useSessionEdit.ts:99:      await invoke('chat_v2_update_session_settings', {
+src/features/chat/pages/useSessionLifecycle.ts:237:        invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/chat/pages/useSessionLifecycle.ts:246:        invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/chat/pages/useSessionLifecycle.ts:252:        invoke<number>('chat_v2_count_sessions', { status: 'active' }),
+src/features/chat/pages/useSessionLifecycle.ts:253:        invoke<number>('chat_v2_count_sessions', { status: 'active', groupId: '' }),
+src/features/chat/pages/useSessionLifecycle.ts:297:      const result = await invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/chat/pages/useSessionLifecycle.ts:326:        await invoke('chat_v2_delete_session', { sessionId });
+src/features/chat/pages/useSessionLifecycle.ts:69:      const count = await invoke<number>('chat_v2_count_sessions', {
+src/features/chat/pages/useSessionLifecycle.ts:97:        const storedDraft = await invoke<ChatSession | null>('chat_v2_get_session', {
+src/features/chat/plugins/blocks/ankiCardsBlock.tsx:1001:      const available = await invoke<boolean>('anki_connect_check_status');
+src/features/chat/plugins/blocks/ankiCardsBlock.tsx:1042:          const tasks = await invoke<Array<{ status?: string }>>('enhanced_anki_get_document_tasks', { documentId: currentDocumentId });
+src/features/chat/plugins/blocks/ankiCardsBlock.tsx:1054:            const cards = await invoke<Array<Record<string, unknown>>>('enhanced_anki_get_document_cards', { documentId: currentDocumentId });
+src/features/chat/plugins/blocks/ankiCardsBlock.tsx:1120:      invoke('chat_v2_update_block_tool_output', {
+src/features/chat/plugins/blocks/askUserBlock.tsx:204:        await invoke('chat_v2_ask_user_respond', {
+src/features/chat/plugins/blocks/paperSave.tsx:137:      await invoke('vfs_download_paper', {
+src/features/chat/plugins/chat/ModelPanel.tsx:101:        const vendorConfigs = await invoke<VendorConfigSlim[]>('get_vendor_configs');
+src/features/chat/plugins/chat/ModelPanel.tsx:125:        const assignments = await invoke<Record<string, string | null>>('get_model_assignments');
+src/features/chat/plugins/chat/ModelPanel.tsx:250:      const currentAssignments = await invoke<ModelAssignments>('get_model_assignments');
+src/features/chat/plugins/chat/ModelPanel.tsx:255:      await invoke<void>('save_model_assignments', { assignments: newAssignments });
+src/features/chat/plugins/chat/ModelPanel.tsx:91:      const configs = await invoke<ModelConfig[]>('get_api_configurations');
+src/features/chat/plugins/events/toolCall.ts:430:              await invoke('chat_v2_upsert_streaming_block', {
+src/features/chat/plugins/events/toolCall.ts:485:                await invoke('chat_v2_upsert_streaming_block', {
+src/features/chat/plugins/events/toolCall.ts:641:              await invoke('chat_v2_upsert_streaming_block', {
+src/features/chat/plugins/modes/analysis.ts:160:    const response = await invoke<{
+src/features/chat/readiness/readinessGate.ts:44:        return invoke<ModelAssignments>('get_model_assignments');
+src/features/chat/resources/api.ts:147:      const result = await invoke<BackendCreateResourceResult>(
+src/features/chat/resources/api.ts:185:      const backendResource = await invoke<BackendResource | null>('vfs_get_resource', {
+src/features/chat/resources/api.ts:207:      const backendResource = await invoke<BackendResource | null>(
+src/features/chat/resources/api.ts:229:      return await invoke<boolean>('vfs_resource_exists', { resourceId });
+src/features/chat/resources/api.ts:242:      await invoke('vfs_increment_ref', { resourceId });
+src/features/chat/resources/api.ts:255:      await invoke('vfs_decrement_ref', { resourceId });
+src/features/chat/skills/api.ts:100:  await invoke<void>('skill_delete', { path });
+src/features/chat/skills/api.ts:54:  return invoke<SkillDirectoryEntry[]>('skill_list_directories', { path });
+src/features/chat/skills/api.ts:64:  return invoke<SkillFileContent>('skill_read_file', { path });
+src/features/chat/skills/api.ts:74:  return invoke<SkillFileContent>('skill_create', {
+src/features/chat/skills/api.ts:88:  return invoke<SkillFileContent>('skill_update', {
+src/features/chat/skills/builtinStorage.ts:104:    const stored = await invoke<string | null>('get_setting', { key });
+src/features/chat/skills/builtinStorage.ts:154:    await invoke('save_setting', { key, value });
+src/features/chat/skills/builtinStorage.ts:176:    await invoke('delete_setting', { key });
+src/features/chat/skills/loader.ts:120:    const entries = await invoke<SkillDirectoryEntry[]>('skill_list_directories', {
+src/features/chat/skills/loader.ts:136:        const fileResult = await invoke<SkillFileContent>('skill_read_file', {
+src/features/chat/skills/loader.ts:362:    const fileResult = await invoke<SkillFileContent>('skill_read_file', {
+src/features/chat/workspace/api.ts:116:  const response = await invoke<CreateWorkspaceResponse>('chat_v2_workspace_create', {
+src/features/chat/workspace/api.ts:145:  return invoke<WorkspaceInfo | null>('chat_v2_workspace_get', {
+src/features/chat/workspace/api.ts:155:  return invoke<void>('chat_v2_workspace_close', {
+src/features/chat/workspace/api.ts:165:  return invoke<void>('chat_v2_workspace_delete', {
+src/features/chat/workspace/api.ts:177:  return invoke<CreateAgentResponse>('chat_v2_workspace_create_agent', {
+src/features/chat/workspace/api.ts:186:  return invoke<AgentInfo[]>('chat_v2_workspace_list_agents', {
+src/features/chat/workspace/api.ts:199:  return invoke<SendMessageResponse>('chat_v2_workspace_send_message', {
+src/features/chat/workspace/api.ts:213:  return invoke<MessageInfo[]>('chat_v2_workspace_list_messages', {
+src/features/chat/workspace/api.ts:229:  return invoke<void>('chat_v2_workspace_set_context', {
+src/features/chat/workspace/api.ts:245:  return invoke<unknown | null>('chat_v2_workspace_get_context', {
+src/features/chat/workspace/api.ts:259:  return invoke<DocumentInfo[]>('chat_v2_workspace_list_documents', {
+src/features/chat/workspace/api.ts:273:  return invoke<string | null>('chat_v2_workspace_get_document', {
+src/features/chat/workspace/api.ts:284:  return invoke<WorkspaceInfo[]>('chat_v2_workspace_list_all', {
+src/features/chat/workspace/api.ts:430:  const response = await invoke<{
+src/features/chat/workspace/api.ts:463:  return invoke<boolean>('chat_v2_workspace_cancel_agent', {
+src/features/chat/workspace/api.ts:499:  const sessions = await invoke<Array<{
+src/features/chat/workspace/api.ts:554:  return invoke<RestoreExecutionsResponse>('chat_v2_workspace_restore_executions', {
+src/features/chat/workspace/api.ts:590:  return invoke<ManualWakeResponse>('chat_v2_workspace_manual_wake', {
+src/features/chat/workspace/api.ts:613:  return invoke<boolean>('chat_v2_workspace_cancel_sleep', {
+src/features/chat/workspace/events.ts:495:          const sessionData = await invoke<{ messages: Array<{ id: string; role: string }> }>(
+src/features/chat/workspace/events.ts:504:            await invoke('chat_v2_upsert_streaming_block', {
+src/features/learning-hub/LearningHubPage.tsx:690:          const resource = await invoke<{ sourceId?: string } | null>('vfs_get_resource', { resourceId: finalDocumentId });
+src/features/learning-hub/apps/views/ExamContentView.tsx:587:          const result = await invoke<{ success_count: number; failed_count: number; errors: string[] }>('qbank_reset_questions_progress', { questionIds: ids });
+src/features/learning-hub/apps/views/ExamContentView.tsx:613:          const result = await invoke<{ success_count: number; failed_count: number; errors: string[] }>('qbank_batch_delete_questions', { questionIds: ids });
+src/features/learning-hub/apps/views/ExamContentView.tsx:639:          await invoke('qbank_toggle_favorite', { questionId: id });
+src/features/learning-hub/apps/views/ExamContentView.tsx:652:          await invoke('qbank_update_question', {
+src/features/learning-hub/apps/views/ExamContentView.tsx:677:          await invoke('qbank_delete_question', { questionId: id });
+src/features/learning-hub/apps/views/FileContentView.tsx:174:      await invoke('vfs_ensure_ocr_pipeline', { fileId: node.sourceId });
+src/features/learning-hub/apps/views/FileContentView.tsx:245:      const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/features/learning-hub/apps/views/FileContentView.tsx:291:        const result = await invoke<{ content: string | null; found: boolean }>('vfs_resolve_resource_refs', {
+src/features/learning-hub/apps/views/FileContentView.tsx:314:      const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/features/learning-hub/apps/views/ImageContentView.tsx:113:        const attachment = await invoke<VfsAttachment | null>('vfs_get_attachment', {
+src/features/learning-hub/apps/views/ImageContentView.tsx:88:      const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/features/learning-hub/apps/views/NoteContentView.tsx:134:      const md = await invoke<string>('get_ocr_page_md', {
+src/features/learning-hub/apps/views/TextbookContentView.tsx:254:        const size = await invoke<number>('get_file_size', { path: filePath });
+src/features/learning-hub/apps/views/TextbookContentView.tsx:311:      await invoke('vfs_start_pdf_processing', { fileId: node.id });
+src/features/learning-hub/apps/views/TextbookContentView.tsx:343:          const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/features/learning-hub/apps/views/TextbookContentView.tsx:363:            const fileSize = effectiveFileSize ?? await invoke<number>('get_file_size', { path: effectiveFilePath });
+src/features/learning-hub/apps/views/TextbookContentView.tsx:371:            const bytes = await invoke<number[]>('read_file_bytes', { path: effectiveFilePath });
+src/features/learning-hub/apps/views/TextbookContentView.tsx:594:      const ocrInfo = await invoke<{
+src/features/learning-hub/apps/views/TextbookContentView.tsx:610:    invoke<{ configured: boolean; modelName?: string }>('check_ocr_availability')
+src/features/learning-hub/apps/views/TextbookContentView.tsx:637:      const response = await invoke<{ status: string; message?: string }>(
+src/features/learning-hub/apps/views/TextbookContentView.tsx:681:      const ocrInfoResult = await invoke<{ hasOcr: boolean; ocrText: string | null }>(
+src/features/learning-hub/apps/views/TextbookContentView.tsx:723:        await invoke('vfs_ensure_ocr_pipeline', { fileId: node.sourceId });
+src/features/learning-hub/apps/views/TextbookContentView.tsx:726:        const ocrInfo = await invoke<{ hasOcr: boolean; ocrText: string | null }>(
+src/features/learning-hub/apps/views/TextbookContentView.tsx:765:        let results = await invoke<Array<{ id: string; name: string; path: string }>>('dstu_list', {
+src/features/learning-hub/apps/views/TextbookContentView.tsx:777:          results = await invoke<Array<{ id: string; name: string; path: string }>>('dstu_list', {
+src/features/learning-hub/apps/views/TextbookContentView.tsx:790:          results = await invoke<Array<{ id: string; name: string; path: string }>>('dstu_list', {
+src/features/learning-hub/apps/views/TextbookContentView.tsx:859:        const md = await invoke<string>('get_ocr_page_md', {
+src/features/learning-hub/resourceDropImport.ts:119:  const rawBytes = await invoke<number[]>('read_file_bytes', { path });
+src/features/mindmap/api/mindmapApi.ts:16:  return invoke<VfsMindMap>('vfs_create_mindmap', { params });
+src/features/mindmap/api/mindmapApi.ts:23:  return invoke<VfsMindMap | null>('vfs_get_mindmap', { mindmapId });
+src/features/mindmap/api/mindmapApi.ts:30:  return invoke<string | null>('vfs_get_mindmap_content', { mindmapId });
+src/features/mindmap/api/mindmapApi.ts:40:  return invoke<VfsMindMap>('vfs_update_mindmap', { mindmapId, params });
+src/features/mindmap/api/mindmapApi.ts:47:  return invoke<void>('vfs_delete_mindmap', { mindmapId });
+src/features/mindmap/api/mindmapApi.ts:54:  return invoke<VfsMindMap[]>('vfs_list_mindmaps');
+src/features/mindmap/api/mindmapApi.ts:64:  return invoke<void>('vfs_set_mindmap_favorite', { mindmapId, isFavorite });
+src/features/mindmap/components/mindmap/MindMapEmbed.tsx:371:            invoke<{
+src/features/mindmap/components/mindmap/MindMapEmbed.tsx:380:            invoke<string | null>('vfs_get_mindmap_version_content', { versionId: targetId }),
+src/features/mindmap/components/mindmap/MindMapEmbed.tsx:405:            invoke<VfsMindMap | null>('vfs_get_mindmap', { mindmapId: targetId }),
+src/features/mindmap/components/mindmap/MindMapEmbed.tsx:406:            invoke<string | null>('vfs_get_mindmap_content', { mindmapId: targetId }),
+src/features/notes/NotesContext.tsx:1329:        void invoke<boolean>('notes_set_pref', { key: 'notes_tabs', value: payload });
+src/features/notes/NotesContext.tsx:460:                const raw = await invoke<string | null>('notes_get_pref', { key: 'notes_tabs' });
+src/features/notes/NotesContext.tsx:983:            const assets = await invoke<Array<{ absolute_path: string; relative_path: string }>>('notes_list_assets', { subject: '_global', noteId: id });
+src/features/notes/hooks/useCanvasAIEditHandler.ts:47:      await invoke('chat_v2_canvas_edit_result', { result });
+src/features/notes/notes-split/hooks/useNotesTabs.ts:62:      const raw = await invoke<string | null>('notes_get_pref', { key: 'notes_tabs' });
+src/features/notes/preview/ExamPreview.tsx:294:  const response = await invoke<{
+src/features/pdf/components/EnhancedPdfViewer.tsx:425:    invoke('vfs_ensure_ocr_pipeline', { fileId })
+src/features/pomodoro/api.ts:44:  return invoke('vfs_pomodoro_create_record', { input });
+src/features/pomodoro/api.ts:48:  return invoke('vfs_pomodoro_get_record', { recordId });
+src/features/pomodoro/api.ts:52:  return invoke('vfs_pomodoro_list_by_todo', { todoItemId });
+src/features/pomodoro/api.ts:56:  return invoke('vfs_pomodoro_today_stats');
+src/features/pomodoro/api.ts:60:  return invoke('vfs_pomodoro_list_today');
+src/features/settings/components/EngineSettingsSection.tsx:101:        const res = await invoke('get_provider_strategies_config') as { provider_strategies?: ProviderStrategiesMap } | null;
+src/features/settings/components/EngineSettingsSection.tsx:128:      const res = await invoke('test_search_engine', { engine: id }) as { ok?: boolean; message?: string; response_time?: number } | null;
+src/features/settings/components/EngineSettingsSection.tsx:210:      await invoke('save_provider_strategies_config', { strategies: providerStrategies });
+src/features/settings/components/IndexMaintenanceSection.tsx:116:      await TauriAPI.invoke(commandName, {
+src/features/settings/components/McpEditorSection.tsx:1597:        await invoke('preheat_mcp_tools');
+src/features/settings/components/McpEditorSection.tsx:1622:                  await invoke('preheat_mcp_tools').catch(() => undefined);
+src/features/settings/components/McpToolsSection.tsx:1658:      const results = await invoke<[string, string, string][]>('get_settings_by_prefix', {
+src/features/settings/components/McpToolsSection.tsx:1720:      await invoke('save_setting', { key, value: level });
+src/features/settings/components/McpToolsSection.tsx:1738:      await invoke('delete_setting', { key });
+src/features/settings/components/McpToolsSection.tsx:1752:      const result = await invoke<number>('chat_v2_clear_approval_history');
+src/features/settings/components/ModelsTab.tsx:198:        const engineType = await invoke<string>('get_ocr_engine_type');
+src/features/settings/components/OcrEngineCard.tsx:117:      await invoke('update_ocr_engine_priority', {
+src/features/settings/components/OcrEngineCard.tsx:138:      await invoke('update_ocr_engine_priority', {
+src/features/settings/components/OcrEngineCard.tsx:158:      await invoke('update_ocr_engine_priority', {
+src/features/settings/components/OcrEngineCard.tsx:172:      await invoke('remove_ocr_engine', { configId });
+src/features/settings/components/OcrEngineCard.tsx:197:      await invoke('add_ocr_engine', {
+src/features/settings/components/OcrEngineCard.tsx:363:                  await invoke('set_ocr_thinking_enabled', { enabled: next });
+src/features/settings/components/OcrEngineCard.tsx:77:      const result = await invoke<AvailableOcrModel[]>('get_available_ocr_models');
+src/features/settings/components/OcrEngineCard.tsx:86:      const result = await invoke<OcrEngineInfo[]>('get_ocr_engines');
+src/features/settings/components/OcrEngineCard.tsx:95:      const enabled = await invoke<boolean>('get_ocr_thinking_enabled');
+src/features/settings/components/OcrEngineTestPanel.tsx:123:          return await invoke<OcrTestResponse>('test_ocr_engine', {
+src/features/settings/components/OcrSettingsSection.tsx:148:      const getSetting = (key: string) => invoke<string | null>('get_setting', { key }).catch(() => null);
+src/features/settings/components/OcrSettingsSection.tsx:185:      await invoke('save_setting', { key, value });
+src/features/settings/components/OcrSettingsSection.tsx:229:      const save = (key: string, value: string) => invoke('save_setting', { key, value });
+src/features/settings/components/Settings.tsx:356:      const apiConfigs = (await invoke('get_api_configurations').catch(() => [])) as ApiConfig[];
+src/features/settings/components/Settings.tsx:799:        const modelAssignments = await invoke<{
+src/features/settings/components/ShadApiEditModal.tsx:500:        const result: any = await invoke('get_model_adapter_options');
+src/features/settings/components/SiliconFlowSection.tsx:891:            existingEngines = await invoke<typeof existingEngines>('get_available_ocr_models');
+src/features/settings/components/SiliconFlowSection.tsx:926:          await invoke('save_available_ocr_models', { models: merged });
+src/features/settings/components/data-governance/ChatSessionArchiveTab.tsx:114:      await invoke('chat_v2_restore_session', { sessionId });
+src/features/settings/components/data-governance/ChatSessionArchiveTab.tsx:132:      await invoke('chat_v2_delete_session', { sessionId });
+src/features/settings/components/data-governance/ChatSessionArchiveTab.tsx:45:        invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/features/settings/components/data-governance/ChatSessionArchiveTab.tsx:50:        invoke<SessionGroup[]>('chat_v2_list_groups', {
+src/features/settings/components/useSettingsConfig.ts:40:          invoke('get_api_configurations').catch(() => []) as Promise<ApiConfig[]>,
+src/features/settings/components/useSettingsConfig.ts:41:          invoke('get_model_assignments').catch(() => ({
+src/features/settings/components/useSettingsVendorState.tsx:139:        const result = await invoke('test_api_connection', {
+src/features/todo/api.ts:101:  return invoke('vfs_todo_search', { query });
+src/features/todo/api.ts:105:  return invoke('vfs_todo_get_active_summary');
+src/features/todo/api.ts:21:  return invoke('vfs_todo_create_list', { input });
+src/features/todo/api.ts:25:  return invoke('vfs_todo_get_list', { listId });
+src/features/todo/api.ts:29:  return invoke('vfs_todo_list_lists');
+src/features/todo/api.ts:33:  return invoke('vfs_todo_update_list', { input });
+src/features/todo/api.ts:37:  return invoke('vfs_todo_delete_list', { listId });
+src/features/todo/api.ts:41:  return invoke('vfs_todo_toggle_list_favorite', { listId });
+src/features/todo/api.ts:45:  return invoke('vfs_todo_ensure_inbox');
+src/features/todo/api.ts:53:  return invoke('vfs_todo_create_item', { input });
+src/features/todo/api.ts:57:  return invoke('vfs_todo_get_item', { itemId });
+src/features/todo/api.ts:61:  return invoke('vfs_todo_list_items', { listId, includeCompleted });
+src/features/todo/api.ts:65:  return invoke('vfs_todo_update_item', { input });
+src/features/todo/api.ts:69:  return invoke('vfs_todo_toggle_item', { itemId });
+src/features/todo/api.ts:73:  return invoke('vfs_todo_delete_item', { itemId });
+src/features/todo/api.ts:77:  return invoke('vfs_todo_reorder_items', { input: { listId, itemIds } });
+src/features/todo/api.ts:85:  return invoke('vfs_todo_list_today', { includeCompleted });
+src/features/todo/api.ts:89:  return invoke('vfs_todo_list_overdue', { includeCompleted });
+src/features/todo/api.ts:93:  return invoke('vfs_todo_list_upcoming', { days, includeCompleted });
+src/features/todo/api.ts:97:  return invoke('vfs_todo_list_completed', { listId });
+src/hooks/useChatV2Stats.ts:142:        invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/hooks/useChatV2Stats.ts:146:        invoke<ChatSession[]>('chat_v2_list_sessions', {
+src/hooks/useChatV2Stats.ts:214:        const messageSummary = await invoke<MessageSummary>('chat_v2_get_message_summary');
+src/hooks/useLearningHeatmap.ts:88:      const result = await invoke<LearningActivity[]>('get_learning_heatmap', {
+src/hooks/useMigrationStatusListener.ts:160:          const status = await invoke<MigrationStatusResponse>('data_governance_get_migration_status');
+src/hooks/usePdfLoader.ts:174:      const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+src/hooks/usePdfLoader.ts:225:          invoke('vfs_ensure_ocr_pipeline', { fileId: nodeId }).catch((ocrErr: unknown) => {
+src/hooks/usePdfLoader.ts:285:      invoke('vfs_start_pdf_processing', { fileId: nodeId })
+src/hooks/useQbankAiGrading.ts:116:        void invoke('qbank_cancel_grading', {
+src/hooks/useQbankAiGrading.ts:250:          await invoke('qbank_ai_grade', {
+src/hooks/useQbankAiGrading.ts:298:    await invoke('qbank_cancel_grading', {
+src/hooks/useQbankAiGrading.ts:319:      void invoke('qbank_cancel_grading', {
+src/hooks/useQbankAiGrading.ts:337:          void invoke('qbank_cancel_grading', {
+src/hooks/useQuestionBankSession.ts:178:    const firstPage = await invoke<QuestionListResult>('qbank_list_questions', {
+src/hooks/useQuestionBankSession.ts:196:      const result = await invoke<QuestionListResult>('qbank_list_questions', {
+src/hooks/useQuestionBankSession.ts:240:        invoke<StoreStats | null>('qbank_get_stats', { examId: currentExamId }),
+src/hooks/useQuestionBankSession.ts:317:      const result = await invoke<QuestionListResult>('qbank_list_questions', {
+src/hooks/useQuestionBankSession.ts:352:        invoke<StoreQuestion | null>('qbank_get_question', { questionId }),
+src/hooks/useQuestionBankSession.ts:353:        invoke<StoreStats>('qbank_refresh_stats', { examId: currentExamId }),
+src/hooks/useQuestionBankSession.ts:396:      const result = await invoke<SubmitAnswerResult>('qbank_submit_answer', {
+src/hooks/useQuestionBankSession.ts:450:      const question = await invoke<StoreQuestion>('qbank_toggle_favorite', { questionId });
+src/hooks/useQuestionBankSession.ts:473:      const stats = await invoke<StoreStats>('qbank_refresh_stats', { examId: currentExamId });
+src/hooks/useSystemSettings.ts:139:          invoke('save_setting', { key, value: String(value) })
+src/hooks/useSystemSettings.ts:61:            const value = await invoke('get_setting', { key }) as string;
+src/hooks/useTauriDragAndDrop.ts:251:              const fileSize = await invoke<number>('get_file_size', { path });
+src/hooks/useTauriDragAndDrop.ts:265:            const rawBytes = await invoke<number[]>('read_file_bytes', { path });
+src/main.tsx:475:        invoke('report_frontend_log', { payload }).catch((err) => {
+src/mcp/mcpService.ts:1912:          await invoke('preheat_mcp_tools');
+src/mcp/tauriStdioTransport.ts:161:      const sessionId = await invoke<string>('mcp_stdio_start', {
+src/mcp/tauriStdioTransport.ts:194:      await invoke('mcp_stdio_send', { sessionId: this.nativeSessionId, payload });
+src/mcp/tauriStdioTransport.ts:205:      await invoke('mcp_stdio_close', { sessionId: this.nativeSessionId });
+src/services/ankiApiAdapter.ts:103:      return await invoke<SaveAnkiCardsResponse>('anki_connect_save_cards', {
+src/services/ankiApiAdapter.ts:140:        await invoke('enhanced_anki_delete_card', { cardId: id });
+src/services/ankiApiAdapter.ts:232:      documentIdRef = await invoke('enhanced_anki_start_document_processing', {
+src/services/ankiApiAdapter.ts:258:          await invoke('enhanced_anki_delete_document_session', {
+src/services/ankiApiAdapter.ts:64:      return await invoke('anki_connect_batch_export_cards', { notes, format: params.format, options: params.options });
+src/services/ankiApiAdapter.ts:68:        return await invoke('anki_connect_export_apkg_with_template', {
+src/services/ankiConnectClient.ts:111:    await Promise.all(pairs.map(([key, value]) => invoke('save_setting', { key, value })));
+src/services/ankiConnectClient.ts:34:    return await invoke<boolean>('anki_connect_check_status');
+src/services/ankiConnectClient.ts:37:    return await invoke<string[]>('anki_connect_get_deck_names');
+src/services/ankiConnectClient.ts:40:    return await invoke<string[]>('anki_connect_get_model_names');
+src/services/ankiConnectClient.ts:43:    await invoke('anki_connect_create_deck', { deckName: name });
+src/services/ankiConnectClient.ts:46:    return await invoke<boolean>('anki_connect_import_package', { path: apkgPath });
+src/services/ankiConnectClient.ts:60:    return await invoke<(number | null)[]>('anki_connect_add_cards', {
+src/services/resourceSyncService.ts:302:      const result = await invoke<BackendSyncResult>('resource_sync_note', {
+src/services/resourceSyncService.ts:323:      const result = await invoke<BackendSyncResult>('resource_sync_exam', {
+src/services/resourceSyncService.ts:347:      const results = await invoke<BackendSyncResult[]>('resource_sync_textbook_pages', {
+src/services/resourceSyncService.ts:374:      const result = await invoke<CheckSyncNeededResponse>('resource_check_sync_needed', {
+src/services/resourceSyncService.ts:496:    const result = await invoke<{ resourceId: string; hash: string; isNew: boolean }>('vfs_create_or_reuse', {
+src/stores/questionBankStore.ts:1028:          const result = await invoke<SubmitAnswerResult>('qbank_submit_answer', {
+src/stores/questionBankStore.ts:1057:          const question = await invoke<Question>('qbank_toggle_favorite', {
+src/stores/questionBankStore.ts:1074:          const stats = await invoke<QuestionBankStats | null>('qbank_get_stats', {
+src/stores/questionBankStore.ts:1086:        const stats = await invoke<QuestionBankStats>('qbank_refresh_stats', {
+src/stores/questionBankStore.ts:1096:          const stats = await invoke<QuestionBankStats>('qbank_reset_progress', {
+src/stores/questionBankStore.ts:1147:          const result = await invoke<LearningTrendPoint[]>('qbank_get_learning_trend', {
+src/stores/questionBankStore.ts:1170:          const result = await invoke<ActivityHeatmapPoint[]>('qbank_get_activity_heatmap', {
+src/stores/questionBankStore.ts:1190:          const result = await invoke<KnowledgeStatsComparison>('qbank_get_knowledge_stats_with_comparison', {
+src/stores/questionBankStore.ts:1211:          const result = await invoke<CsvPreviewResult>('get_csv_preview', {
+src/stores/questionBankStore.ts:1226:          const result = await invoke<CsvImportResult>('import_questions_csv', {
+src/stores/questionBankStore.ts:1257:          const result = await invoke<CsvExportResult>('export_questions_csv', {
+src/stores/questionBankStore.ts:1279:          const fields = await invoke<Array<[string, string]>>('get_csv_exportable_fields', {});
+src/stores/questionBankStore.ts:1300:          const session = await invoke<TimedPracticeSession>('qbank_start_timed_practice', {
+src/stores/questionBankStore.ts:1321:          const session = await invoke<MockExamSession>('qbank_generate_mock_exam', {
+src/stores/questionBankStore.ts:1346:          const scoreCard = await invoke<MockExamScoreCard>('qbank_submit_mock_exam', {
+src/stores/questionBankStore.ts:1367:          const result = await invoke<DailyPracticeResult>('qbank_get_daily_practice', {
+src/stores/questionBankStore.ts:1387:          const paper = await invoke<GeneratedPaper>('qbank_generate_paper', {
+src/stores/questionBankStore.ts:1407:          const calendar = await invoke<CheckInCalendar>('qbank_get_check_in_calendar', {
+src/stores/questionBankStore.ts:1432:          const status = await invoke<SyncStatusResult>('qbank_sync_check', {
+src/stores/questionBankStore.ts:1449:          const conflicts = await invoke<SyncConflict[]>('qbank_get_sync_conflicts', {
+src/stores/questionBankStore.ts:1466:          const question = await invoke<Question>('qbank_resolve_sync_conflict', {
+src/stores/questionBankStore.ts:1492:          const questions = await invoke<Question[]>('qbank_batch_resolve_conflicts', {
+src/stores/questionBankStore.ts:1496:          const refreshedConflicts = await invoke<SyncConflict[]>('qbank_get_sync_conflicts', {
+src/stores/questionBankStore.ts:1517:          await invoke('qbank_set_sync_enabled', {
+src/stores/questionBankStore.ts:1532:          await invoke('qbank_update_sync_config', {
+src/stores/questionBankStore.ts:792:          const result = await invoke<QuestionListResult>('qbank_list_questions', {
+src/stores/questionBankStore.ts:851:          const result = await invoke<QuestionListResult>('qbank_list_questions', {
+src/stores/questionBankStore.ts:908:          const result = await invoke<QuestionSearchListResult>('qbank_search_questions', {
+src/stores/questionBankStore.ts:931:          const count = await invoke<number>('qbank_rebuild_fts_index', {});
+src/stores/questionBankStore.ts:943:          const question = await invoke<Question | null>('qbank_get_question', {
+src/stores/questionBankStore.ts:964:          const question = await invoke<Question>('qbank_update_question', {
+src/stores/questionBankStore.ts:985:          await invoke('qbank_delete_question', { questionId });
+src/stores/reviewPlanStore.ts:298:          const result = await invoke<DueReviewsResult>('review_plan_get_due', {
+src/stores/reviewPlanStore.ts:325:          const result = await invoke<DueReviewsResult>('review_plan_get_due_with_filter', {
+src/stores/reviewPlanStore.ts:351:          const stats = await invoke<ReviewStats>('review_plan_get_stats', {
+src/stores/reviewPlanStore.ts:363:          const stats = await invoke<ReviewStats>('review_plan_refresh_stats', {
+src/stores/reviewPlanStore.ts:380:          const result = await invoke<DueReviewsResult>('review_plan_list_by_exam', {
+src/stores/reviewPlanStore.ts:409:          const plan = await invoke<ReviewPlan>('review_plan_create', {
+src/stores/reviewPlanStore.ts:431:          const result = await invoke<BatchCreateResult>('review_plan_batch_create', {
+src/stores/reviewPlanStore.ts:452:          const result = await invoke<BatchCreateResult>('review_plan_create_for_exam', {
+src/stores/reviewPlanStore.ts:471:          await invoke('review_plan_delete', { planId });
+src/stores/reviewPlanStore.ts:485:          const plan = await invoke<ReviewPlan>('review_plan_suspend', { planId });
+src/stores/reviewPlanStore.ts:501:          const plan = await invoke<ReviewPlan>('review_plan_resume', { planId });
+src/stores/reviewPlanStore.ts:519:          const plan = await invoke<ReviewPlan>('review_plan_get_or_create', {
+src/stores/reviewPlanStore.ts:532:          const plan = await invoke<ReviewPlan | null>('review_plan_get_by_question', {
+src/stores/reviewPlanStore.ts:549:          const result = await invoke<ProcessReviewResult>('review_plan_process', {
+src/stores/reviewPlanStore.ts:573:          const history = await invoke<ReviewHistory[]>('review_plan_get_history', {
+src/stores/reviewPlanStore.ts:712:          const data = await invoke<CalendarHeatmapData[]>(
+src/translation/useTranslationStream.ts:280:        await invoke('translate_text_stream', {
+src/translation/useTranslationStream.ts:321:      await invoke('cancel_stream', { streamEventName });
+src/utils/chatApi.ts:125:  await invoke<void>('enhanced_anki_update_card', { card: cardPayload });
+src/utils/chatApi.ts:129:  return invoke<boolean>('enhanced_anki_delete_card', { card_id: cardId });
+src/utils/chatApi.ts:146:  return invoke<ExportAnkiCardsResult>('enhanced_anki_export_cards', { request });
+src/utils/chatApi.ts:156:const raw = await invoke<any>('textbooks_add', { sources: filePaths });
+src/utils/chatApi.ts:16:    return await invoke<string>('read_file_text', { path });
+src/utils/chatApi.ts:191:    const res = await invoke<number>('rebuild_chat_fts');
+src/utils/chatApi.ts:220:    const r = await invoke<Array<{message_id:number; mistake_id:string; role:string; timestamp:string; text:string; score:number}>>('search_chat_fulltext', { request: { query, role: role || null, limit: typeof limit === 'number' ? limit : null } });
+src/utils/chatApi.ts:234:    const r = await invoke<Array<{message_id:number; mistake_id:string; role:string; timestamp:string; text:string; score:number}>>('search_chat_basic', { request: { query, role: role || null, limit: typeof limit === 'number' ? limit : null } });
+src/utils/chatApi.ts:248:    const r = await invoke<Array<{message_id:number; mistake_id:string; role:string; timestamp:string; text:string; score:number}>>('search_user_messages_semantic', {
+src/utils/chatApi.ts:267:    const r = await invoke<{ fts: Array<any>, semantic: Array<any> }>('search_chat_combined', { request: { query, top_k: typeof top_k === 'number' ? top_k : null } });
+src/utils/chatApi.ts:280:    const s = await invoke<{ total_fts: number; total_vectors: number; missing_user_embeddings: number }>('get_chat_index_stats', { request: {} });
+src/utils/chatApi.ts:292:  return await invoke('research_list_reports', { request: { limit } });
+src/utils/chatApi.ts:296:  return await invoke('research_get_report', { id });
+src/utils/chatApi.ts:29:    await invoke<void>('copy_file', { sourcePath, destPath, source_path: sourcePath, dest_path: destPath });
+src/utils/chatApi.ts:300:  return await invoke('research_delete_report', { id });
+src/utils/chatApi.ts:305:  return await invoke('research_export_all_reports_zip', { request: { format, path } });
+src/utils/chatApi.ts:41:    const bytes = await invoke<number[]>('read_file_bytes', { path });
+src/utils/chatApi.ts:52:    const size = await invoke<number>('get_file_size', { path });
+src/utils/chatApi.ts:92:  return invoke<AnkiLibraryListResponse>('enhanced_anki_list_library_cards', { request });
+src/utils/clipboardUtils.ts:15:    await invoke('plugin:clipboard-manager|write_text', { text });
+src/utils/clipboardUtils.ts:62:    const text = await invoke<string>('plugin:clipboard-manager|read_text');
+src/utils/cloudStorageApi.ts:183:    return await invoke<boolean>('cloud_storage_check_connection', { config });
+src/utils/cloudStorageApi.ts:198:    await invoke('cloud_storage_put', { config, key, data: Array.from(data) });
+src/utils/cloudStorageApi.ts:212:    const data = await invoke<number[] | null>('cloud_storage_get', { config, key });
+src/utils/cloudStorageApi.ts:227:    return await invoke<FileInfo[]>('cloud_storage_list', { config, prefix });
+src/utils/cloudStorageApi.ts:241:    await invoke('cloud_storage_delete', { config, key });
+src/utils/cloudStorageApi.ts:255:    return await invoke<FileInfo | null>('cloud_storage_stat', { config, key });
+src/utils/cloudStorageApi.ts:269:    return await invoke<boolean>('cloud_storage_exists', { config, key });
+src/utils/cloudStorageApi.ts:282:    return await invoke<SyncStatus>('cloud_sync_get_status', { config });
+src/utils/cloudStorageApi.ts:293:    return await invoke<BackupVersion[]>('cloud_sync_list_versions', { config });
+src/utils/cloudStorageApi.ts:309:    return await invoke<UploadResult>('cloud_sync_upload', {
+src/utils/cloudStorageApi.ts:331:    return await invoke<DownloadResult>('cloud_sync_download', {
+src/utils/cloudStorageApi.ts:349:    await invoke('cloud_sync_delete_version', { config, versionId });
+src/utils/cloudStorageApi.ts:360:    return await invoke<string>('cloud_sync_get_device_id');
+src/utils/cloudStorageApi.ts:436:    return await invoke<boolean>('cloud_storage_is_s3_enabled');
+src/utils/cloudStorageApi.ts:464:    await invoke('secure_save_cloud_credentials', { credentials });
+src/utils/cloudStorageApi.ts:475:    return await invoke<CloudStorageCredentials | null>('secure_get_cloud_credentials');
+src/utils/cloudStorageApi.ts:487:    await invoke('secure_delete_cloud_credentials');
+src/utils/cloudStorageApi.ts:498:    return await invoke<boolean>('secure_store_is_available');
+src/utils/configApi.ts:105:    await invoke<void>('save_api_configurations', { configs: filtered });
+src/utils/configApi.ts:10:      const response = await invoke<string>('get_image_as_base64', { relativePath });
+src/utils/configApi.ts:114:    return await invoke<VendorConfig[]>('get_vendor_configs');
+src/utils/configApi.ts:123:    await invoke<void>('save_vendor_configs', { configs });
+src/utils/configApi.ts:132:    return await invoke<ModelProfile[]>('get_model_profiles');
+src/utils/configApi.ts:141:    await invoke<void>('save_model_profiles', { profiles });
+src/utils/configApi.ts:150:    const response = await invoke<any>('get_model_assignments');
+src/utils/configApi.ts:15:        const response = await invoke<string>('get_image_as_base64', { relative_path: relativePath });
+src/utils/configApi.ts:160:    await invoke<void>('save_model_assignments', { assignments });
+src/utils/configApi.ts:64:    const response = await invoke<string>('save_image_from_base64_path', { 
+src/utils/configApi.ts:80:    const response = await invoke<string[]>('cleanup_orphaned_images');
+src/utils/configApi.ts:91:    const response = await invoke<ApiConfig[]>('get_api_configurations');
+src/utils/debugLogger.ts:500:      await invoke('write_debug_logs', { logs: logsToFlush });
+src/utils/forceImportTemplates.ts:31:    const importResult = await invoke<string>('import_builtin_templates');
+src/utils/forceImportTemplates.ts:92:    const existingTemplates = await invoke<CustomAnkiTemplate[]>('get_all_custom_templates');
+src/utils/graphApi.ts:1011:    const response = await invoke<Array<{
+src/utils/graphApi.ts:102:    const response = await invoke<number>('enhanced_anki_dismiss_pending_memory_candidates', {
+src/utils/graphApi.ts:1042:    const response = await invoke<Array<{
+src/utils/graphApi.ts:1070:    const response = await invoke<{
+src/utils/graphApi.ts:1095:    await invoke('unified_outline_update_tag', {
+src/utils/graphApi.ts:1117:    await invoke('graph_reorder_tag', {
+src/utils/graphApi.ts:1139:    await invoke('graph_batch_reorder_tags', {
+src/utils/graphApi.ts:115:    const response = await invoke<number>('enhanced_anki_mark_pending_memory_candidates_saved', {
+src/utils/graphApi.ts:1164:    await invoke('unified_outline_update_tag', {
+src/utils/graphApi.ts:1183:    await invoke('unified_fix_tag_hierarchy', { ...withGraphId(graphId) });
+src/utils/graphApi.ts:1206:    const result = await invoke<any>('delete_memory_internalization_tasks', payload);
+src/utils/graphApi.ts:133:    const response = await invoke<GraphRecallTestResult>('graph_recall_test', {
+src/utils/graphApi.ts:220:      await invoke('continue_unified_chat_stream', { request: unifiedPayload });
+src/utils/graphApi.ts:239:      const response = await invoke<string>('unified_track_card_access', { ...withGraphId(graphId), cardId, card_id: cardId });
+src/utils/graphApi.ts:310:        const batchResult = await invoke<{
+src/utils/graphApi.ts:369:      const tags = await invoke<any[]>('unified_get_card_tags', {
+src/utils/graphApi.ts:404:      const assignments = await invoke<Array<{ tag_id: string; confidence?: number; specificity?: number }>>('unified_get_card_tag_metrics', {
+src/utils/graphApi.ts:440:  const response = await invoke('unified_remove_card_tag', {
+src/utils/graphApi.ts:456:  const response = await invoke('unified_add_card_tag', {
+src/utils/graphApi.ts:475:    const response = await invoke('search_existing_tags', {
+src/utils/graphApi.ts:504:        response = await invoke<any[]>('unified_get_tags', { ...withGraphId(graphId) });
+src/utils/graphApi.ts:507:        response = await invoke<any[]>('get_all_tags');
+src/utils/graphApi.ts:542:    const response = await invoke('unified_create_tag', {
+src/utils/graphApi.ts:573:    const response = await invoke<Tag>('unified_create_tag', { ...withGraphId(graphId), request });
+src/utils/graphApi.ts:587:    const response = await invoke('get_detailed_tag_hierarchy', {
+src/utils/graphApi.ts:5: * 所有 invoke() 调用会在运行时静默失败（错误被 .catch() 吞没）。
+src/utils/graphApi.ts:60:    const response = await invoke<{
+src/utils/graphApi.ts:610:    const response = await invoke('update_card_content', { request });
+src/utils/graphApi.ts:624:    const response = await invoke('get_tag_mapping_history', {
+src/utils/graphApi.ts:643:    const response = await invoke('unified_get_card', { ...withGraphId(graphId), card_id: cardId, cardId });
+src/utils/graphApi.ts:680:    const response = await invoke<any[]>('unified_graph_recall_sql', {
+src/utils/graphApi.ts:709:    await invoke('unified_log_metric_event', { ...withGraphId(graphId), eventName, sessionId, cardId, tagId, meta });
+src/utils/graphApi.ts:766:    const response = await invoke<string>('initialize_unified_irec', {
+src/utils/graphApi.ts:823:    const response = await invoke<{
+src/utils/graphApi.ts:85:    const response = await invoke<{
+src/utils/graphApi.ts:871:    const response = await invoke<{
+src/utils/graphApi.ts:948:    const response = await invoke<{
+src/utils/notesApi.ts:102:    return await invoke<boolean>('notes_db_vacuum', {});
+src/utils/notesApi.ts:106:    return await invoke<string[]>('notes_list_tags', {});
+src/utils/notesApi.ts:121:    return await invoke<any>('notes_search', {
+src/utils/notesApi.ts:128:    return await invoke<any>('notes_list_deleted', { page, page_size }) as any;
+src/utils/notesApi.ts:131:    return await invoke<number>('notes_empty_trash', {});
+src/utils/notesApi.ts:134:    return await invoke<boolean>('notes_hard_delete', { id });
+src/utils/notesApi.ts:137:    return await invoke<boolean>('notes_restore', { subject: '_global', id });
+src/utils/notesApi.ts:146:    const res = await invoke<NotesMentionSearchResult>('notes_mentions_search', payload);
+src/utils/notesApi.ts:152:    return await invoke<number>('notes_assets_index_scan', { noteId });
+src/utils/notesApi.ts:155:    return await invoke<string[]>('notes_assets_scan_orphans', {});
+src/utils/notesApi.ts:158:    return await invoke<number>('notes_assets_bulk_delete', { paths });
+src/utils/notesApi.ts:174:      const result = await invoke<{
+src/utils/notesApi.ts:199:      const result = await invoke<{
+src/utils/notesApi.ts:224:      const result = await invoke<{
+src/utils/notesApi.ts:249:    return await invoke<string>('canvas_note_read', { noteId, section });
+src/utils/notesApi.ts:263:    await invoke<void>('canvas_note_append', { noteId, content, section });
+src/utils/notesApi.ts:280:    return await invoke<number>('canvas_note_replace', { noteId, search, replace, isRegex });
+src/utils/notesApi.ts:292:    await invoke<void>('canvas_note_set', { noteId, content });
+src/utils/notesApi.ts:52:    return await invoke<any>('notes_save_asset', { 
+src/utils/notesApi.ts:63:    return await invoke<any[]>('notes_list_assets', { subject: '_global', noteId }) as any;
+src/utils/notesApi.ts:71:    return await invoke<boolean>('notes_delete_asset', { relativePath });
+src/utils/notesApi.ts:76:    return await invoke<string>('notes_resolve_asset_path', { relativePath });
+src/utils/notesApi.ts:82:    return await invoke<boolean>('notes_set_pref', { key, value });
+src/utils/notesApi.ts:85:    return await invoke<any>('notes_get_pref', { key }) as any;
+src/utils/notesApi.ts:99:    return await invoke<any>('notes_db_stats', {});
+src/utils/settingsApi.ts:100:  return await invoke('research_get_round_visual_summary', { ...withSessionId(sessionId), round_no: roundNo, roundNo });
+src/utils/settingsApi.ts:103:  return await invoke('research_delete_round', { ...withSessionId(sessionId), round_no: roundNo, roundNo, clean_coverage: !!cleanCoverage });
+src/utils/settingsApi.ts:107:  return await invoke('research_generate_round_report', { ...withSessionId(sessionId), round_no: roundNo, roundNo, format: format || null, opts_json, optsJson: opts_json });
+src/utils/settingsApi.ts:110:  return await invoke('research_set_round_note', { ...withSessionId(sessionId), round_no: roundNo, roundNo, note, tags: tags || null });
+src/utils/settingsApi.ts:114:  return await invoke('research_get_round_note', { ...withSessionId(sessionId), round_no: roundNo, roundNo });
+src/utils/settingsApi.ts:117:  return await invoke('research_get_round_notes', { ...withSessionId(sessionId) });
+src/utils/settingsApi.ts:121:  return await invoke('research_generate_session_report', { ...withSessionId(sessionId), format: format || null, opts_json, optsJson: opts_json, rounds: Array.isArray(rounds) ? rounds : null });
+src/utils/settingsApi.ts:126:  const res = await invoke<{ text: string | null }>('research_get_chunk_text', { ...withSessionId(sessionId), document_id: documentId, documentId, chunk_index: chunkIndex, chunkIndex });
+src/utils/settingsApi.ts:133:  const res = await invoke<{ items: Array<{chunk_index: number; text: string}> }>('research_get_chunk_context', { ...withSessionId(sessionId), document_id: documentId, documentId, chunk_index: chunkIndex, chunkIndex, before, after });
+src/utils/settingsApi.ts:139:  return await invoke('research_update_session_options', { req: { ...withSessionId(sessionId), options_json, optionsJson: options_json } });
+src/utils/settingsApi.ts:145:  return await invoke('research_delete_session', { session_id: sessionId, sessionId });
+src/utils/settingsApi.ts:14:    await invoke<void>('save_setting', { key, value });
+src/utils/settingsApi.ts:150:  await invoke('save_text_to_file', { path, content });
+src/utils/settingsApi.ts:156:  return await invoke('research_run_until', { 
+src/utils/settingsApi.ts:166:  return await invoke<string>('read_file_text', { path });
+src/utils/settingsApi.ts:170:  return await invoke('research_run_macro', { ...withSessionId(sessionId), keywords: keywords || null });
+src/utils/settingsApi.ts:174:  return await invoke('research_run_to_full_coverage', withSessionId(sessionId));
+src/utils/settingsApi.ts:180:  return await invoke('research_audit_user_questions', { date_range: date_range || null, dateRange: date_range || null, keywords: keywords || null, group_by: group_by || null, groupBy: group_by || null, limit: typeof limit === 'number' ? limit : null });
+src/utils/settingsApi.ts:184:  return await invoke('research_find_similar_questions', { question_text: questionText, questionText, top_k: topK, topK });
+src/utils/settingsApi.ts:188:  return await invoke('research_get_full_chat_history', { document_id: documentId || null, documentId: documentId || null, message_id: messageId || null, messageId: messageId || null });
+src/utils/settingsApi.ts:192:  return await invoke('research_deep_read_by_docs', { ...withSessionId(sessionId), document_ids: documentIds, documentIds, context_threshold: contextThreshold || null, contextThreshold: contextThreshold || null });
+src/utils/settingsApi.ts:196:  return await invoke('research_deep_read_by_tag', { ...withSessionId(sessionId), tag, context_threshold: contextThreshold || null, contextThreshold: contextThreshold || null });
+src/utils/settingsApi.ts:201:  return await invoke('research_count_tokens', { document_ids: documentIds, documentIds, precise: true });
+src/utils/settingsApi.ts:205:  return await invoke('research_get_full_content', { document_ids: documentIds, documentIds, precise: true });
+src/utils/settingsApi.ts:210:  return await invoke('research_get_setting', { key });
+src/utils/settingsApi.ts:213:  return await invoke('research_set_setting', { key, value });
+src/utils/settingsApi.ts:216:  return await invoke('research_delete_setting', { key });
+src/utils/settingsApi.ts:221:  return await invoke('research_list_artifacts', { ...withSessionId(sessionId), round_no: typeof roundNo === 'number' ? roundNo : null, roundNo: typeof roundNo === 'number' ? roundNo : null });
+src/utils/settingsApi.ts:226:    const response = await invoke<any>('test_mcp_websocket', { url, env });
+src/utils/settingsApi.ts:236:    const response = await invoke<any>('test_mcp_sse', { endpoint, apiKey, env });
+src/utils/settingsApi.ts:246:    const response = await invoke<any>('test_mcp_http', { endpoint, apiKey, env });
+src/utils/settingsApi.ts:256:    const response = await invoke<any>('test_mcp_modelscope', { serverId, apiKey, region, hosted });
+src/utils/settingsApi.ts:266:    const response = await invoke<{ success: boolean; message?: string; error?: string }>('reload_mcp_client');
+src/utils/settingsApi.ts:26:    const response = await invoke<string | null>('get_setting', { key });
+src/utils/settingsApi.ts:277:    const response = await invoke<any>('test_web_search_connectivity', { engine: engine || null });
+src/utils/settingsApi.ts:288:    return await invoke<any>('get_mcp_status');
+src/utils/settingsApi.ts:297:    return await invoke<Array<{ name: string; description?: string; input_schema: any }>>('get_mcp_tools');
+src/utils/settingsApi.ts:321:    return await invoke('test_all_search_engines');
+src/utils/settingsApi.ts:330:    const response = await invoke<boolean>('test_api_connection', {
+src/utils/settingsApi.ts:347:    const response = await invoke<any>('get_statistics');
+src/utils/settingsApi.ts:358:    const response = await invoke<any>('get_enhanced_statistics');
+src/utils/settingsApi.ts:44:    await invoke<boolean>('delete_setting', { key });
+src/utils/settingsApi.ts:57:    const response = await invoke<any>('test_mcp_connection', {
+src/utils/settingsApi.ts:95:  return await invoke('research_get_round', { ...withSessionId(sessionId), round_no: roundNo, roundNo });
+src/utils/shared.ts:174:    const res = await invoke<T>(cmd, args);
+src/utils/systemApi.ts:140:  return invoke<{ success: boolean; optimized_tables?: number; duration_ms?: number; message: string; error?: string }>('optimize_lance_database', { parallelism, force });
+src/utils/systemApi.ts:154:    return await invoke('get_data_space_info');
+src/utils/systemApi.ts:171:    return await invoke('mark_data_space_pending_switch_to_inactive');
+src/utils/systemApi.ts:192:  return invoke('get_test_slot_info');
+src/utils/systemApi.ts:200:  return invoke('clear_test_slots');
+src/utils/systemApi.ts:204:  return invoke<void>('restart_app');
+src/utils/systemApi.ts:214:    const result = await invoke<string>('fix_database_schema');
+src/utils/systemApi.ts:22:    const response = await invoke<string>('llm_generate_answer_with_context', {
+src/utils/systemApi.ts:230:    const result = await invoke<string>('purge_all_database_files');
+src/utils/systemApi.ts:242:    return await invoke<string>('purge_active_data_dir_now');
+src/utils/systemApi.ts:269:    const response = await invoke<any>('get_storage_info');
+src/utils/systemApi.ts:286:      appDataDir = await invoke<string>('get_app_data_dir');
+src/utils/systemApi.ts:297:    return await invoke<string>('get_app_version');
+src/utils/systemApi.ts:408:    return await invoke('check_package_manager', { command });
+src/utils/systemApi.ts:40:    const response = await invoke<string>('initialize_default_tag_hierarchy');
+src/utils/systemApi.ts:421:    return await invoke('auto_install_package_manager', { managerType });
+src/utils/systemApi.ts:435:    return await invoke('check_all_package_managers');
+src/utils/systemApi.ts:57:    const response = await invoke<{ success: boolean; message: string }>('unified_generate_missing_tag_vectors', { ...withGraphId(graphId) });
+src/utils/systemApi.ts:84:  return invoke<{ success: boolean; path?: string; size?: number }>('save_webview_settings', { settings });
+src/utils/testApi.ts:142:  const invokePromise = invoke<string>('ocr_extract_text', {
+src/utils/testApi.ts:67:  await invoke('clear_message_embeddings', { messageIds: payload });
+src/utils/tts.ts:116:  await invoke('tts_speak', {
+src/utils/tts.ts:130:      await invoke('tts_stop');
+src/utils/tts.ts:32:    await invoke('tts_check_available');
+src/voice-input/providerRegistry.ts:26:  return invoke<VoiceInputTranscriptionResult>('voice_input_transcribe', {
+src/voice-input/runtimeConfig.ts:28:    invoke<Pick<ModelAssignments, 'voice_input_asr_model_config_id'>>('get_model_assignments').catch(
+src/voice-input/runtimeConfig.ts:31:    invoke<ApiConfig[]>('get_api_configurations').catch(() => []),

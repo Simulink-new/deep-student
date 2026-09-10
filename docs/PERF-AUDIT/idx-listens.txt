@@ -1,0 +1,102 @@
+src/api/dataGovernance.ts:461:  return listen<unknown>(BACKUP_JOB_PROGRESS_EVENT, (event) => {
+src/api/dataGovernance.ts:800:  return listen<SyncProgress>(SYNC_PROGRESS_EVENT, (event) => {
+src/components/CsvImportDialog.tsx:321:      const unlisten = await listen<CsvImportProgressEvent>('csv_import_progress', (event) => {
+src/components/DataImportExport.tsx:1271:        listen<BackupJobEvent>('backup-job-progress', (event) => {
+src/components/DataImportExport.tsx:523:      listen<BackupJobEventPayload>('backup-job-progress', (event) => {
+src/components/DataImportExport.tsx:719:      const unlisten = await listen<BackupJobEventPayload>('backup-job-progress', (event) => {
+src/components/ExamSheetUploader.tsx:206:      unlisten = await listen<{
+src/components/anki/cardforge/engines/CardAgent.ts:847:      this.unlistenFn = await listen<BackendStreamedCardPayload>(
+src/components/anki/cardforge/engines/CardAgent.ts:872:      this.toolCallUnlistenFn = await listen<ChatV2ToolCallPayload>(
+src/components/anki/cardforge/engines/CardEngine.ts:599:   * 注意：此方法现在是异步的，必须等待 listen() 完成后才能开始处理任务
+src/components/anki/cardforge/engines/CardEngine.ts:605:      this.eventUnlistener = await listen<unknown>('anki_generation_event', (tauriEvent) => {
+src/debug-panel/plugins/ChatAnkiWorkflowDebugPlugin.tsx:281:    listen<unknown>('anki_generation_event', (event) => {
+src/debug-panel/plugins/ExamSheetProcessingDebugPlugin.tsx:245:    await listen<any>('exam_sheet_progress', ({ payload }) => {
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:363:    listen<{
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:389:    listen<{
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:406:    listen<{
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:424:    listen<{
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:448:    listen<{
+src/debug-panel/plugins/MediaProcessingDebugPlugin.tsx:464:    listen<{
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:255:      const unlistenToolEvents = await listen(
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:315:      const unlistenMessage = await listen(
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:324:      const unlistenAgentJoined = await listen(
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:333:      const unlistenAgentStatus = await listen(
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:342:      const unlistenWorkerReady = await listen(
+src/debug-panel/plugins/MultiAgentDebugPlugin.tsx:351:      const unlistenClosed = await listen(
+src/debug-panel/plugins/QuestionImportDebugPlugin.tsx:230:    await listen<Record<string, any>>('question_import_progress', ({ payload }) => {
+src/debug-panel/plugins/ThinkingBlockDebugPlugin.tsx:89:      const unlisten = await listen<{
+src/dstu/api.ts:647:      unlistenFn = await listen<DstuWatchEvent>(eventChannel, (event) => {
+src/engines/TemplateAIEngine.ts:152:    const usageListener = await listen<any>(
+src/engines/TemplateAIEngine.ts:174:    const errorListener = await listen<{ error: string }>(
+src/engines/TemplateAIEngine.ts:219:    const cancelledListener = await listen<{ reason: string }>(
+src/engines/TemplateAIEngine.ts:229:    const endListener = await listen<any>(
+src/engines/TemplateAIEngine.ts:32:    const startListener = await listen<{ id: string }>(
+src/engines/TemplateAIEngine.ts:44:    const contentListener = await listen<{ content: string; is_complete?: boolean }>(
+src/engines/TemplateAIEngine.ts:69:    const reasoningListener = await listen<{ content: string; is_complete?: boolean }>(
+src/engines/TemplateAIEngine.ts:92:    const jsonListener = await listen<{
+src/essay-grading/useEssayGradingStream.ts:228:        const unlisten = await listen<GradingStreamEvent>(
+src/features/chat/adapters/TauriAdapter.ts:384:        listen<BackendEvent>(blockEventChannel, (event) => {
+src/features/chat/adapters/TauriAdapter.ts:387:        listen<SessionEventPayload>(sessionEventChannel, (event) => {
+src/features/chat/adapters/TauriAdapter.ts:390:        listen<unknown>('anki_generation_event', (event) => {
+src/features/chat/adapters/TauriAdapter.ts:393:        listen<LlmRequestBodyEventPayload>('chat_v2_llm_request_body', (event) => {
+src/features/chat/adapters/TauriAdapter.ts:509:        listen<BackendEvent>(blockEventChannel, (event) => {
+src/features/chat/adapters/TauriAdapter.ts:512:        listen<SessionEventPayload>(sessionEventChannel, (event) => {
+src/features/chat/adapters/TauriAdapter.ts:515:        listen<unknown>('anki_generation_event', (event) => {
+src/features/chat/adapters/TauriAdapter.ts:519:        listen<LlmRequestBodyEventPayload>('chat_v2_llm_request_body', (event) => {
+src/features/chat/components/TranslationPopover.tsx:327:        unlisten = await listen<ChatTranslationEvent>(eventName, (event) => {
+src/features/chat/context/vfsRefApiEnhancements.ts:733:      listen('tauri://close-requested', () => {
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:292:    const ul1 = await listen<{ fileId: string; status: { stage: string; percent: number; readyModes: string[]; currentPage?: number; totalPages?: number }; mediaType: string }>(
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:303:    const ul2 = await listen<{ fileId: string; readyModes: string[]; mediaType: string }>(
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:312:    const ul3 = await listen<{ fileId: string; error: string; stage: string; mediaType: string }>(
+src/features/chat/debug/attachmentPipelineTestPlugin.ts:427:  const unlisten = await listen<{ streamEvent: string; model: string; url: string; requestBody: unknown }>(
+src/features/chat/debug/chatAnkiIntegrationTestPlugin.ts:221:      unlisten = await listen<unknown>('anki_generation_event', (event) => {
+src/features/chat/debug/chatInteractionTestPlugin.ts:438:  const unlisten = await listen<{
+src/features/chat/debug/multiVariantTestPlugin.ts:163:  const unlisten = await listen<{ streamEvent: string; model: string; url: string; requestBody: unknown }>(
+src/features/chat/debug/multiVariantTestPlugin.ts:179:  const unlisten = await listen<Record<string, unknown>>(eventName, (event) => {
+src/features/chat/debug/subagentTestPlugin.ts:300:  const unlistenAgentJoined = await listen<any>(
+src/features/chat/debug/subagentTestPlugin.ts:319:  const unlistenAgentStatus = await listen<any>(
+src/features/chat/debug/subagentTestPlugin.ts:345:  const unlistenWorkerReady = await listen<any>(
+src/features/chat/debug/subagentTestPlugin.ts:361:  const unlistenMessage = await listen<any>(
+src/features/chat/debug/workspaceOrchestrationTestPlugin.ts:473:    const unlisten = await listen<Record<string, unknown>>(eventName, (event) => {
+src/features/chat/debug/workspaceOrchestrationTestPlugin.ts:511:    const unlisten = await listen<BackendEvent>(channel, (event) => {
+src/features/chat/plugins/blocks/sleepBlock.tsx:278:      const unlisten1 = await listen<{
+src/features/chat/plugins/blocks/sleepBlock.tsx:301:      const unlisten2 = await listen<{
+src/features/chat/plugins/blocks/sleepBlock.tsx:329:      const unlisten3 = await listen<{
+src/features/chat/plugins/blocks/subagentEmbed.tsx:135:      unlisten = await listen<{
+src/features/chat/workspace/events.ts:288:  const unlistenMessage = await listen<WorkspaceMessageEvent>(
+src/features/chat/workspace/events.ts:312:  const unlistenAgentJoined = await listen<WorkspaceAgentEvent>(
+src/features/chat/workspace/events.ts:335:  const unlistenAgentLeft = await listen<WorkspaceAgentEvent>(
+src/features/chat/workspace/events.ts:349:  const unlistenAgentStatus = await listen<WorkspaceAgentStatusEvent>(
+src/features/chat/workspace/events.ts:366:  const unlistenDocument = await listen<WorkspaceDocumentEvent>(
+src/features/chat/workspace/events.ts:390:  const unlistenClosed = await listen<WorkspaceClosedEvent>(
+src/features/chat/workspace/events.ts:406:  const unlistenWorkerReady = await listen<WorkspaceWorkerReadyEvent>(
+src/features/chat/workspace/events.ts:417:  const unlistenCoordinatorAwakened = await listen<CoordinatorAwakenedEvent>(
+src/features/chat/workspace/events.ts:470:  const unlistenSubagentRetry = await listen<SubagentRetryEvent>(
+src/features/chat/workspace/events.ts:535:  const unlistenWorkspaceWarning = await listen<WorkspaceWarningEvent>(
+src/features/learning-hub/LearningHubSidebar.tsx:761:      unlisten = await listen<TextbookImportProgress>('textbook-import-progress', (event) => {
+src/features/learning-hub/resourceDropImport.ts:307:        unlisten = await listen<TextbookImportProgressPayload>('textbook-import-progress', (event) => {
+src/features/learning-hub/views/IndexStatusView.tsx:329:      unlisten = await listen<{
+src/features/learning-hub/views/IndexStatusView.tsx:432:      unlisten = await listen<{
+src/features/notes/NotesContext.tsx:582:                unlisten = await listen<{ noteId: string; toolName: string }>('canvas:note-updated', (event) => {
+src/features/notes/hooks/useCanvasAIEditHandler.ts:142:        const fn = await listen<CanvasAIEditRequest>(
+src/features/settings/components/CloudStorageSection.tsx:110:    listen<{
+src/features/settings/components/DataGovernanceDashboard.tsx:1380:        const maybeUnlisten = await listen<ResumableJob[]>('backup-jobs-resumable', (event) => {
+src/hooks/useMigrationStatusListener.ts:148:        const nextUnlisten = await listen<MigrationStatusPayload>(
+src/hooks/usePdfProcessingProgress.ts:81:      eventName: Parameters<typeof listen<T>>[0],
+src/hooks/usePdfProcessingProgress.ts:82:      handler: Parameters<typeof listen<T>>[1],
+src/hooks/usePdfProcessingProgress.ts:85:        const unlisten = await listen<T>(eventName, handler);
+src/hooks/useQbankAiGrading.ts:183:          const unlisten = await listen<QbankGradingStreamEvent>(eventName, (event) => {
+src/hooks/useTauriEventListener.ts:32:    const unlisten = await listen<T>(eventName, handler);
+src/mcp-debug/bridge.ts:296:      const unlisten = await listen<{ correlationId: string; command: MCPDebugCommand }>('mcp-debug-command', async (event) => {
+src/mcp/mcpService.ts:1618:      listen<BridgeRequest>('mcp-bridge-request', async (ev) => {
+src/mcp/mcpService.ts:1627:      listen<{ correlationId: string }>('mcp-bridge-tools-request', async (ev) => {
+src/mcp/mcpService.ts:1635:      listen<{ correlationId: string }>('mcp-bridge-prompts-request', async (ev) => {
+src/mcp/mcpService.ts:1643:      listen<{ correlationId: string }>('mcp-bridge-resources-request', async (ev) => {
+src/mcp/mcpService.ts:1651:      listen<{ correlationId: string; uri: string }>('mcp-bridge-resource-read-request', async (ev) => {
+src/mcp/tauriStdioTransport.ts:226:    const messageUnlisten = await listen(`${eventPrefix}-message`, event => {
+src/mcp/tauriStdioTransport.ts:246:    const errorUnlisten = await listen(`${eventPrefix}-error`, event => {
+src/mcp/tauriStdioTransport.ts:262:    const closeUnlisten = await listen(`${eventPrefix}-closed`, () => {
+src/menu/menuEventBridge.ts:90:          const unlisten = await listen(eventName, handler);
+src/translation/useTranslationStream.ts:160:        const unlisten = await listen<TranslationStreamEvent>(
+src/utils/guardedListen.ts:59:  return mod.listen(event, handler);
+src/utils/systemApi.ts:61:      const un = await listen<'any'>('tag_vector_status', (e: any) => {

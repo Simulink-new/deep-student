@@ -1,0 +1,225 @@
+src-tauri/src/backup_job_manager.rs:864:        self.emit(&id);
+src-tauri/src/backup_job_manager.rs:872:        self.emit(&job_id);
+src-tauri/src/backup_job_manager.rs:942:            self.emit(job_id);
+src-tauri/src/backup_job_manager.rs:982:            .emit("backup-job-progress", snapshot.clone())
+src-tauri/src/backup_job_manager.rs:989:        if let Err(err) = self.app_handle.emit("backup-import-progress", progress) {
+src-tauri/src/chat_v2/events.rs:1026:        if let Err(e) = self.window.emit(&event_name, &event) {
+src-tauri/src/chat_v2/events.rs:1066:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1086:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1149:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1166:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1197:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1217:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1234:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1332:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1371:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1409:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1502:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:1523:        self.emit(event);
+src-tauri/src/chat_v2/events.rs:800:    if let Err(e) = emitter.emit(event_name, event) {
+src-tauri/src/chat_v2/handlers/block_actions.rs:981:    if let Err(e) = app.emit(&event_channel, &start_event) {
+src-tauri/src/chat_v2/handlers/block_actions.rs:999:    if let Err(e) = app.emit(&event_channel, &end_event) {
+src-tauri/src/chat_v2/handlers/send_message.rs:355:    if let Err(e) = window.emit("chat_v2_request_audit", &request_audit_payload) {
+src-tauri/src/chat_v2/handlers/variant_handlers.rs:375:    if let Err(e) = window.emit(&event_name, &payload) {
+src-tauri/src/chat_v2/handlers/workspace_handlers.rs:1003:                        if let Err(e) = window_clone.emit(
+src-tauri/src/chat_v2/handlers/workspace_handlers.rs:1049:                if let Err(e) = window_clone.emit(
+src-tauri/src/chat_v2/handlers/workspace_handlers.rs:1266:            if let Err(e) = window.emit(
+src-tauri/src/chat_v2/handlers/workspace_handlers.rs:968:                        let _ = window_clone.emit("workspace_subagent_retry", &fail_payload);
+src-tauri/src/chat_v2/handlers/workspace_handlers.rs:985:                        if let Err(e) = window_clone.emit("workspace_subagent_retry", &retry_block_payload) {
+src-tauri/src/chat_v2/migration/legacy_migration.rs:1016:        let _ = w.emit(MIGRATION_EVENT_CHANNEL, &event);
+src-tauri/src/chat_v2/migration/legacy_migration.rs:80:            if let Err(e) = window.emit(MIGRATION_EVENT_CHANNEL, &event) {
+src-tauri/src/chat_v2/migration/legacy_migration.rs:949:        let _ = w.emit(MIGRATION_EVENT_CHANNEL, &event);
+src-tauri/src/chat_v2/tools/anki_executor.rs:315:        if let Err(e) = ctx.window.emit("anki_tool_call", &event_payload) {
+src-tauri/src/chat_v2/tools/canvas_executor.rs:703:            .emit("canvas:ai-edit-request", &request)
+src-tauri/src/chat_v2/tools/session_executor.rs:1164:                    let _ = ctx.window.emit(
+src-tauri/src/chat_v2/tools/subagent_executor.rs:215:            .emit(WORKSPACE_WORKER_READY_EVENT, &event_payload)
+src-tauri/src/chat_v2/tools/workspace_executor.rs:300:                .emit(WORKSPACE_WORKER_READY_EVENT, &event_payload)
+src-tauri/src/chat_v2/workspace/emitter.rs:171:            if let Err(e) = handle.emit(workspace_events::MESSAGE_RECEIVED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:184:            if let Err(e) = handle.emit(workspace_events::AGENT_JOINED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:204:            if let Err(e) = handle.emit(workspace_events::AGENT_LEFT, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:218:            if let Err(e) = handle.emit(workspace_events::AGENT_STATUS_CHANGED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:234:            if let Err(e) = handle.emit(workspace_events::DOCUMENT_UPDATED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:246:            if let Err(e) = handle.emit(workspace_events::WORKSPACE_CLOSED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:279:            if let Err(e) = handle.emit(workspace_events::COORDINATOR_AWAKENED, &event) {
+src-tauri/src/chat_v2/workspace/emitter.rs:293:            if let Err(e) = handle.emit(workspace_events::WORKSPACE_WARNING, &warning) {
+src-tauri/src/cloud_storage/mod.rs:66:    if let Err(e) = app.emit("cloud-sync-progress", &event) {
+src-tauri/src/cmd/mcp.rs:72:        let _ = app_handle.emit("mcp-test-progress", serde_json::json!({ "step": step }));
+src-tauri/src/cmd/notes.rs:1309:            let _ = window_clone.emit("notes-import-progress", &progress);
+src-tauri/src/cmd/textbooks.rs:154:        if let Err(err) = window.emit("textbook-import-progress", &payload) {
+src-tauri/src/cmd/textbooks.rs:341:                if let Err(err) = window_clone.emit("textbook-import-progress", &payload) {
+src-tauri/src/cmd/textbooks.rs:68:    if let Err(err) = window.emit(&format!("dstu:change:{}", dstu_path), &watch_event) {
+src-tauri/src/cmd/textbooks.rs:74:    if let Err(err) = window.emit("dstu:change", &watch_event) {
+src-tauri/src/commands.rs:1059:                if let Err(err) = app_handle.emit("question_import_progress", payload) {
+src-tauri/src/commands.rs:1128:                if let Err(err) = app_handle.emit("question_import_progress", payload) {
+src-tauri/src/commands.rs:1267:                if let Err(err) = app_handle.emit("csv_import_progress", payload) {
+src-tauri/src/commands.rs:911:        app_handle.emit(
+src-tauri/src/commands.rs:941:        app_handle.emit(
+src-tauri/src/data_governance/commands_sync.rs:2091:            .emit(SyncProgress {
+src-tauri/src/data_governance/commands_sync.rs:2494:            .emit(step_progress(SyncPhase::Transfer, 45.0, "变更上传完成"))
+src-tauri/src/data_governance/commands_sync.rs:2522:            .emit(step_progress(SyncPhase::Transfer, 50.0, "上传同步清单…"))
+src-tauri/src/data_governance/commands_sync.rs:2548:        .emit(step_progress(SyncPhase::Transfer, 62.0, "清单已同步，开始文件同步…"))
+src-tauri/src/data_governance/commands_sync.rs:2599:        .emit(step_progress(SyncPhase::Transfer, 94.0, "清理云端旧变更…"))
+src-tauri/src/data_governance/commands_sync.rs:2638:        .emit(step_progress(SyncPhase::Transfer, 10.0, "下载云端变更数据…"))
+src-tauri/src/data_governance/commands_sync.rs:2647:        .emit(step_progress(SyncPhase::Transfer, 25.0, "云端变更下载完成"))
+src-tauri/src/data_governance/commands_sync.rs:2656:            .emit(step_progress(SyncPhase::Apply, 30.0, "应用变更…"))
+src-tauri/src/data_governance/commands_sync.rs:2676:            .emit(step_progress(SyncPhase::Apply, 40.0, "变更应用完成"))
+src-tauri/src/data_governance/commands_sync.rs:2682:        .emit(step_progress(SyncPhase::Transfer, 62.0, "开始文件同步…"))
+src-tauri/src/data_governance/commands_sync.rs:2754:        .emit(step_progress(SyncPhase::Transfer, 10.0, "下载云端变更数据…"))
+src-tauri/src/data_governance/commands_sync.rs:2765:        .emit(step_progress(SyncPhase::Transfer, 25.0, "云端变更下载完成"))
+src-tauri/src/data_governance/commands_sync.rs:2776:            .emit(step_progress(SyncPhase::Apply, 30.0, "应用下载变更…"))
+src-tauri/src/data_governance/commands_sync.rs:2797:            .emit(step_progress(SyncPhase::Apply, 40.0, "下载变更应用完成"))
+src-tauri/src/data_governance/commands_sync.rs:2828:            .emit(step_progress(SyncPhase::Transfer, 45.0, "上传本地变更…"))
+src-tauri/src/data_governance/commands_sync.rs:2876:            .emit(step_progress(SyncPhase::Transfer, 60.0, "本地变更上传完成"))
+src-tauri/src/data_governance/commands_sync.rs:2914:        .emit(step_progress(SyncPhase::Transfer, 62.0, "上传同步清单…"))
+src-tauri/src/data_governance/commands_sync.rs:2937:        .emit(step_progress(SyncPhase::Transfer, 65.0, "开始文件同步…"))
+src-tauri/src/data_governance/commands_sync.rs:2999:        .emit(step_progress(SyncPhase::Transfer, 94.0, "清理云端旧变更…"))
+src-tauri/src/data_governance/sync/emitter.rs:102:        self.emit(SyncProgress::preflight()).await;
+src-tauri/src/data_governance/sync/emitter.rs:107:        self.emit(SyncProgress::export()).await;
+src-tauri/src/data_governance/sync/emitter.rs:121:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:135:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:140:        self.emit(SyncProgress::finalizing()).await;
+src-tauri/src/data_governance/sync/emitter.rs:145:        self.emit(SyncProgress::ended()).await;
+src-tauri/src/data_governance/sync/emitter.rs:150:        self.emit(SyncProgress::completed()).await;
+src-tauri/src/data_governance/sync/emitter.rs:158:        self.emit(SyncProgress::failed(error.into())).await;
+src-tauri/src/data_governance/sync/emitter.rs:174:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:179:        if let Err(e) = self.app.emit(EVENT_NAME, progress) {
+src-tauri/src/data_governance/sync/emitter.rs:225:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:262:            emitter.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:268:        self.emit(SyncProgress::preflight()).await;
+src-tauri/src/data_governance/sync/emitter.rs:273:        self.emit(SyncProgress::export()).await;
+src-tauri/src/data_governance/sync/emitter.rs:282:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:291:        self.emit(progress).await;
+src-tauri/src/data_governance/sync/emitter.rs:296:        self.emit(SyncProgress::finalizing()).await;
+src-tauri/src/data_governance/sync/emitter.rs:301:        self.emit(SyncProgress::ended()).await;
+src-tauri/src/data_governance/sync/emitter.rs:306:        self.emit(SyncProgress::completed()).await;
+src-tauri/src/data_governance/sync/emitter.rs:311:        self.emit(SyncProgress::failed(error.into())).await;
+src-tauri/src/dstu/handler_utils/node_converters.rs:130:    if let Err(e) = window.emit(&event_name, &event) {
+src-tauri/src/dstu/handler_utils/node_converters.rs:139:    if let Err(e) = window.emit("dstu:change", &event) {
+src-tauri/src/enhanced_anki_service.rs:169:        if let Err(e) = window.emit("anki_generation_event", &start_payload) {
+src-tauri/src/enhanced_anki_service.rs:378:            if let Err(e) = window.emit("anki_generation_event", &complete_payload) {
+src-tauri/src/enhanced_anki_service.rs:449:                if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/enhanced_anki_service.rs:469:                if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/enhanced_anki_service.rs:479:        if let Err(e) = window.emit("anki_generation_event", &pause_payload) {
+src-tauri/src/enhanced_anki_service.rs:536:            if let Err(e) = window.emit("anki_generation_event", &complete_payload) {
+src-tauri/src/essay_grading/events.rs:31:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/essay_grading/events.rs:56:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/essay_grading/events.rs:72:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/essay_grading/events.rs:87:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/lib.rs:2122:                            let _ = handle.emit("mcp_tools_changed", &serde_json::json!({"ts": chrono::Utc::now().to_rfc3339()}));
+src-tauri/src/lib.rs:458:                            let _ = app_handle.emit("data-governance-migration-status", serde_json::json!({
+src-tauri/src/lib.rs:474:                            let _ = app_handle.emit("data-governance-migration-status", serde_json::json!({
+src-tauri/src/lib.rs:528:                            let _ = app_handle.emit("data-governance-migration-status", serde_json::json!({
+src-tauri/src/lib.rs:576:                            let _ = app_handle.emit("data-governance-migration-status", serde_json::json!({
+src-tauri/src/lib.rs:674:                        let _ = app_handle.emit("backup-jobs-resumable", &resumable);
+src-tauri/src/llm_manager/exam_engine.rs:277:            if let Err(e) = app_handle.emit("deepseek_ocr_log", payload) {
+src-tauri/src/llm_manager/model2_pipeline.rs:1451:                            let _ = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:1633:        if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:1813:        if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:1824:        if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:1875:                if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:1934:                                    } else if let Err(e) = window.emit(stream_event, &stream_chunk)
+src-tauri/src/llm_manager/model2_pipeline.rs:1954:                                    } else if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:2098:                                        .emit(&format!("{}_usage", stream_event), &usage_value)
+src-tauri/src/llm_manager/model2_pipeline.rs:2108:                                    if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:2121:                                        .emit(&format!("{}_error", stream_event), &error_event)
+src-tauri/src/llm_manager/model2_pipeline.rs:2229:                        if let Err(emit_err) = window.emit(&error_event, &error_payload) {
+src-tauri/src/llm_manager/model2_pipeline.rs:2233:                        if let Err(emit_err) = window.emit("stream_error", &error_payload) {
+src-tauri/src/llm_manager/model2_pipeline.rs:2271:                            } else if let Err(e) = window.emit(stream_event, &stream_chunk) {
+src-tauri/src/llm_manager/model2_pipeline.rs:2290:                                .emit(&format!("{}_reasoning", stream_event), &reasoning_chunk)
+src-tauri/src/llm_manager/model2_pipeline.rs:2494:            } else if let Err(e) = window.emit(stream_event, &final_chunk) {
+src-tauri/src/llm_manager/model2_pipeline.rs:2514:            if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:2897:                        let _ = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3075:        if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3112:            if let Err(e) = window.emit(&format!("{}_error", stream_event), &error_payload) {
+src-tauri/src/llm_manager/model2_pipeline.rs:3117:            if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3166:                if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3212:                                    if let Err(e) = window.emit(stream_event, &stream_chunk) {
+src-tauri/src/llm_manager/model2_pipeline.rs:3228:                                    if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3350:                                        .emit(&format!("{}_usage", stream_event), &usage_value)
+src-tauri/src/llm_manager/model2_pipeline.rs:3357:                                    if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3370:                                        .emit(&format!("{}_error", stream_event), &error_event)
+src-tauri/src/llm_manager/model2_pipeline.rs:3470:                            if let Err(e) = window.emit(stream_event, &stream_chunk) {
+src-tauri/src/llm_manager/model2_pipeline.rs:3487:                                .emit(&format!("{}_reasoning", stream_event), &reasoning_chunk)
+src-tauri/src/llm_manager/model2_pipeline.rs:3508:            if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3521:            if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3545:            if let Err(e) = window.emit(stream_event, &final_chunk) {
+src-tauri/src/llm_manager/model2_pipeline.rs:3555:                if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:3568:        if let Err(e) = window.emit(
+src-tauri/src/llm_manager/model2_pipeline.rs:710:    if let Err(e) = window.emit("chat_v2_llm_request_body", &payload) {
+src-tauri/src/llm_manager/streaming.rs:498:                                .emit(&format!("{}_web_search", stream_event), &web_search_event)
+src-tauri/src/llm_manager/streaming.rs:510:                                window.emit(&format!("{}_rag_sources", stream_event), &rag_event)
+src-tauri/src/llm_manager/streaming.rs:522:                                .emit(&format!("{}_memory_sources", stream_event), &memory_event)
+src-tauri/src/llm_manager/streaming.rs:553:                                if let Err(e) = window.emit(
+src-tauri/src/llm_manager/streaming.rs:567:                                    .emit(&format!("{}_rag_sources", stream_event), &rag_event)
+src-tauri/src/llm_manager/streaming.rs:578:                                if let Err(e) = window.emit(
+src-tauri/src/llm_manager/streaming.rs:828:            .emit(
+src-tauri/src/mcp/client.rs:1041:                    event_emitter.emit(McpEvent::ToolsChanged).await;
+src-tauri/src/mcp/client.rs:1078:                    event_emitter.emit(McpEvent::ResourcesChanged).await;
+src-tauri/src/mcp/client.rs:1081:                    event_emitter.emit(McpEvent::PromptsChanged).await;
+src-tauri/src/mcp/client.rs:1084:                    event_emitter.emit(McpEvent::RootsChanged).await;
+src-tauri/src/mcp/client.rs:1181:                .emit(McpEvent::ServerInfoReceived(server_info.clone()))
+src-tauri/src/mcp/client.rs:944:        self.event_emitter.emit(McpEvent::Connected).await;
+src-tauri/src/mcp/client.rs:954:        self.event_emitter.emit(McpEvent::Disconnected).await;
+src-tauri/src/mcp/client.rs:992:                            event_emitter.emit(McpEvent::Error(err_str.clone())).await;
+src-tauri/src/mcp/stdio_proxy.rs:100:        let _ = emitter.emit(&format!("{}-closed", event_prefix), &serde_json::json!({}));
+src-tauri/src/mcp/stdio_proxy.rs:78:                    let _ = emitter.emit(
+src-tauri/src/mcp/stdio_proxy.rs:84:                    let _ = emitter.emit(
+src-tauri/src/menu.rs:198:        if let Err(e) = app.emit(name, ()) {
+src-tauri/src/pdf_ocr_service.rs:1050:                                    let _ = app_handle.emit("pdf_ocr_progress", json!({
+src-tauri/src/pdf_ocr_service.rs:1084:                                            let _ = app_handle.emit("pdf_ocr_progress", json!({
+src-tauri/src/pdf_ocr_service.rs:1105:                                                    let _ = app_handle.emit("pdf_ocr_progress", json!({
+src-tauri/src/pdf_ocr_service.rs:1124:                                            let _ = app_handle.emit("pdf_ocr_progress", json!({
+src-tauri/src/pdf_ocr_service.rs:1223:        handle.emit("pdf_ocr_progress", payload)
+src-tauri/src/pdf_ocr_service.rs:1227:        let _ = handle.emit(
+src-tauri/src/pdf_ocr_service.rs:375:            let _ = render_app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:401:                        let _ = render_app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:427:                        let _ = render_app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:457:                    let _ = render_app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:470:                let _ = render_app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:620:                            let _ = app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:681:                                    let _ = app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:709:                                            let _ = app_handle.emit(
+src-tauri/src/pdf_ocr_service.rs:731:                                    let _ = app_handle.emit(
+src-tauri/src/qbank_grading/events.rs:30:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/qbank_grading/events.rs:53:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/qbank_grading/events.rs:69:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/qbank_grading/events.rs:84:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/streaming_anki_service.rs:2098:        if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/streaming_anki_service.rs:2113:        if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/streaming_anki_service.rs:2126:        if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/streaming_anki_service.rs:2160:        if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/streaming_anki_service.rs:2216:        if let Err(e) = window.emit("anki_generation_event", &payload) {
+src-tauri/src/tools/mod.rs:1050:                let _ = window.emit(
+src-tauri/src/tools/mod.rs:448:        if let Err(e) = window.emit("mcp-bridge-request", payload) {
+src-tauri/src/translation/chat_popover.rs:171:    if let Err(e) = window.emit(event, payload) {
+src-tauri/src/translation/events.rs:36:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/translation/events.rs:57:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/translation/events.rs:73:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/translation/events.rs:88:        if let Err(e) = self.window.emit(&event_name, payload) {
+src-tauri/src/utils/chat_helpers.rs:161:    if let Err(e) = window.emit(&event_name, &payload) {
+src-tauri/src/vfs/handlers/index_handlers.rs:1061:    if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:1098:        if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:1127:                if let Err(e) = cb_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:1151:                if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:1169:                if let Err(emit_err) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:1188:    if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:442:    if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:477:            if let Err(e) = cb_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:498:            if let Err(e) = app_handle.emit(
+src-tauri/src/vfs/handlers/index_handlers.rs:513:            if let Err(emit_err) = app_handle.emit(
+src-tauri/src/vfs/handlers/multimodal_handlers.rs:140:                if let Err(e) = app_handle_clone.emit("mm_index_progress", payload) {
+src-tauri/src/vfs/handlers/multimodal_handlers.rs:306:                if let Err(e) = app_handle_clone.emit("mm_index_progress", payload) {
+src-tauri/src/vfs/indexing/mod.rs:2904:            let _ = ah.emit(
+src-tauri/src/vfs/indexing/mod.rs:2983:                let _ = ah.emit(
+src-tauri/src/vfs/indexing/mod.rs:3012:                let _ = ah.emit(
+src-tauri/src/vfs/indexing/mod.rs:3100:            let _ = ah.emit(
+src-tauri/src/vfs/pdf_processing_service.rs:2981:            if let Err(e) = app_handle.emit("media-processing-progress", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:2990:                if let Err(e) = app_handle.emit("pdf-processing-progress", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:3024:            if let Err(e) = app_handle.emit("media-processing-completed", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:3033:                if let Err(e) = app_handle.emit("pdf-processing-completed", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:3065:            if let Err(e) = app_handle.emit("media-processing-error", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:3074:                if let Err(e) = app_handle.emit("pdf-processing-error", &event) {
+src-tauri/src/vfs/pdf_processing_service.rs:4065:            let _ = app_handle.emit("dstu:change", &folder_event);
+src-tauri/src/vfs/pdf_processing_service.rs:4074:                let _ = app_handle.emit("dstu:change", &note_event);
+src-tauri/src/vfs/pdf_processing_service.rs:678:                        let _ = app_handle.emit(
+src-tauri/src/vfs/pdf_processing_service.rs:689:                            let _ = app_handle.emit(
