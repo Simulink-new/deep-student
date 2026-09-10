@@ -36,7 +36,10 @@ export const BlankActionPopup: React.FC<BlankActionPopupProps> = ({
     const left = Math.min(Math.max(x - width / 2, padding), maxLeft);
     const top = Math.min(Math.max(y - 36, padding), maxTop);
     setPosition((current) => current?.left === left && current.top === top ? current : { left, top });
-  }, [x, y, mode, isAlreadyBlanked, isBold, onToggleBold, t]);
+    // 🔧 采矿修正(9c63d70d 跟进): 上游 diff 的依赖数组引用了上游版组件的
+    // mode/isBold/onToggleBold props(fork 版不存在,曾致 TS2304);本 effect 体
+    // 实际只依赖 x/y(ref/setPosition 为稳定引用),依赖数组相应收敛。
+  }, [x, y]);
 
   const handleClickOutside = useCallback((e: MouseEvent) => {
     if (ref.current && !ref.current.contains(e.target as Node)) {
