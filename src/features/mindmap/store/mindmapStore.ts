@@ -241,6 +241,20 @@ interface MindMapStoreState {
 }
 
 const MAX_HISTORY = 50;
+
+/**
+ * 🔧 P2 性能修复（2026-09-10）：深拷贝统一走 structuredClone（比 JSON 往返
+ * 快约 2-6 倍，对 JSON 安全数据语义等价），老旧 webview 回退 JSON。
+ * 此前 pushHistory/undo/redo/buildDraftPayload 每次全文档
+ * JSON.parse(JSON.stringify(doc)) 是导图编辑期最大的每键开销之一。
+ * 注：完整"结构共享/路径拷贝"需重写 applyMutation 为不可变更新，
+ * 风险/收益不成比例，本任务以拷贝成本减半为落地范围。
+ */
+const deepClone = <T,>(value: T): T => {
+  const sc = (globalThis as { structuredClone?: <V>(v: V) => V }).structuredClone;
+  if (typeof sc === 'function') return sc(value);
+  return JSON.parse(JSON.stringify(value)) as T;
+};
 const DRAFT_KEY_PREFIX = 'mindmap:draft:';
 
 interface MindMapDraftPayload {
@@ -380,7 +394,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
 
     const pushHistory = (doc: MindMapDocument) => {
       set((state) => {
-        state.history.past.push(JSON.parse(JSON.stringify(doc)));
+        state.history.past.push(deepClone(doc));
         if (state.history.past.length > MAX_HISTORY) {
           state.history.past.shift();
         }
@@ -394,7 +408,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
       if (!s.mindmapId) return null;
       return {
         mindmapId: s.mindmapId,
-        document: JSON.parse(JSON.stringify(overrides?.document ?? s.document)),
+        document: deepClone(overrides?.document ?? s.document),
         currentView: overrides?.currentView ?? s.currentView,
         focusedNodeId: overrides?.focusedNodeId ?? s.focusedNodeId,
         savedAt: new Date().toISOString(),
@@ -917,7 +931,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
         set((state) => {
           const prev = state.history.past.pop();
           if (prev) {
-            state.history.future.push(JSON.parse(JSON.stringify(document)));
+            state.history.future.push(deepClone(document));
             state.document = prev;
             state.isDirty = true;
             state._documentVersion += 1;
@@ -954,7 +968,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
         set((state) => {
           const next = state.history.future.pop();
           if (next) {
-            state.history.past.push(JSON.parse(JSON.stringify(document)));
+            state.history.past.push(deepClone(document));
             state.document = next;
             state.isDirty = true;
             state._documentVersion += 1;
@@ -1427,7 +1441,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
         for (const nodeId of normalizedIds) {
           const node = findNodeById(document.root, nodeId);
           if (node) {
-            copiedNodes.push(JSON.parse(JSON.stringify(node)));
+            copiedNodes.push(deepClone(node));
           }
         }
 
@@ -1450,7 +1464,7 @@ export const useMindMapStore = create<MindMapStoreState>()(
         for (const nodeId of normalizedIds) {
           const node = findNodeById(document.root, nodeId);
           if (node) {
-            copiedNodes.push(JSON.parse(JSON.stringify(node)));
+            copiedNodes.push(deepClone(node));
           }
         }
 
