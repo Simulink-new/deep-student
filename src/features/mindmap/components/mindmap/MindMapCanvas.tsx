@@ -94,6 +94,11 @@ const MindMapCanvasInner: React.FC = () => {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   // 拖拽子树：记录所有后代节点相对于被拖节点的偏移
   const dragSubtreeOffsetsRef = useRef<Record<string, { dx: number; dy: number }>>({});
+  // 🔧 P2 性能修复：拖拽开始时按文档树一次性预计算的子树 ID 集（含被拖节点自身）。
+  // 此前 onNodeDrag 每帧对全部节点调 isDescendantOf 全树遍历 = O(N×depth)/帧；
+  // 现为 O(1) Set 查询。按文档树（而非 layout 节点）收集，覆盖无 layout 节点的
+  // 后代，防环保证严格不弱于旧守卫。
+  const dragSubtreeIdsRef = useRef<Set<string>>(new Set());
 
   // 获取当前布局引擎
   const layoutEngine = useMemo<ILayoutEngine | undefined>(() => {
@@ -401,15 +406,18 @@ const MindMapCanvasInner: React.FC = () => {
     dragNodeIdRef.current = node.id;
     setIsDragging(true);
 
-    // 收集所有后代节点的相对偏移，使子树跟随拖拽
+    // 收集所有后代节点的相对偏移，使子树跟随拖拽；
+    // 同时按文档树预计算子树 ID 集（拖拽期间防放置目标进入自身子树）
     const allNodes = getNodes();
     const offsets: Record<string, { dx: number; dy: number }> = {};
     const overrides: Record<string, { x: number; y: number }> = { [node.id]: node.position };
+    const subtreeIds = new Set<string>([node.id]);
 
     const collectDescendants = (parentId: string) => {
       const mmNode = findNodeById(document.root, parentId);
       if (!mmNode?.children) return;
       for (const child of mmNode.children) {
+        subtreeIds.add(child.id);
         const layoutNode = allNodes.find(n => n.id === child.id);
         if (layoutNode) {
           offsets[child.id] = {
@@ -424,6 +432,7 @@ const MindMapCanvasInner: React.FC = () => {
     collectDescendants(node.id);
 
     dragSubtreeOffsetsRef.current = offsets;
+    dragSubtreeIdsRef.current = subtreeIds;
     setDragPositionOverride(overrides);
   }, [document.root, setFocusedNodeId, setSelection, getNodes]);
 
@@ -454,10 +463,9 @@ const MindMapCanvasInner: React.FC = () => {
     const dragCenterX = dragPos.x + dragW / 2;
     const dragCenterY = dragPos.y + dragH / 2;
 
+    const subtreeIds = dragSubtreeIdsRef.current;
     for (const n of allNodes) {
-      if (n.id === dragId) continue;
-      if (n.id in offsets) continue; // 跳过子树节点
-      if (isDescendantOf(document.root, dragId, n.id)) continue;
+      if (subtreeIds.has(n.id)) continue; // 跳过被拖节点自身 + 整个子树(O(1),含无 layout 节点的后代)
 
       const nCenterX = n.position.x + (n.measured?.width || 100) / 2;
       const nCenterY = n.position.y + (n.measured?.height || 36) / 2;
@@ -488,12 +496,13 @@ const MindMapCanvasInner: React.FC = () => {
         }
       }
     }
-  }, [document.root, getNodes]);
+  }, [getNodes]);
 
   const onNodeDragStop = useCallback((_: React.MouseEvent, _draggedNode: Node) => {
     const draggedId = dragNodeIdRef.current;
     dragNodeIdRef.current = null;
     dragSubtreeOffsetsRef.current = {};
+    dragSubtreeIdsRef.current = new Set();
     setIsDragging(false);
     setDragPositionOverride({});
 
