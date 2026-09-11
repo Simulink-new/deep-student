@@ -18,14 +18,14 @@
 | A9 | multimodal/ocr/translation/providers | 12 | A9-io-modules.md |
 | A10 | 根级服务+cmd/+mcp+cloud | 18 | A10-root-legacy-misc.md |
 | A11 | 事件层 225×102 全配对 | 25 | A11-events.md |
-| B1 | stores+hooks+contexts | (重试中,待补) | B1-fe-stores-hooks.md |
+| B1 | stores+hooks+contexts | 15 | B1-fe-stores-hooks.md |
 | B2 | api+dstu 适配+services | 14 | B2-fe-data-layer.md |
 | B3 | features/chat(126K 行) | 22 | B3-fe-chat.md |
 | B4 | learning-hub+mindmap | 17 | B4-fe-hub-mindmap.md |
 | B5 | notes+todo+pomodoro+pdf+settings | 16 | B5-fe-notes-settings.md |
 | B6 | components+杂项 | 6 | B6-fe-shared.md |
 
-**合计 ~297 条正式发现**（B1 待补）。每条带 file:line + 量级假设 + 触发频率 + 修复草图，详见分报告。
+**合计 312 条正式发现**。每条带 file:line + 量级假设 + 触发频率 + 修复草图，详见分报告。
 
 ## 2. 审计期间确认"已修"清单（防重复施工）
 
@@ -84,6 +84,8 @@ attachment/image_generation/retrieval 把 MB 级 base64 塞进 tool_result 直�
 - autoSave.ts streamingBlockSaver 死单例（60s 空转 interval）（B3）
 - vfs_multimodal_index image_base64 入参前端零调用（A9）
 - 会话懒加载机器死代码（B3#1 的 callback 未接线——或接线或删）
+- src/store/ResourceStateManager.ts 零引用死代码（B1; src/store 与 src/stores 非新旧两套, 仅此一个孤儿）
+- B1 补录三热点: useChatV2Stats 统计页拉 2×1000 完整会话前端聚合(~0.6MB, 应 SQL GROUP BY 下推); useQuestionBankSession 50/页串行 while 拉全部题目(绕过 store 分页的活跃盲区); researchStore synthesis_updated 每 chunk 全量拼接 O(n²)(5-50MB 级字符复制)——前两项并入 task-038, research O(n²) 提升为 task-038 内优先项
 
 ## 4. 最小数据传递总方案（目标架构）
 
@@ -129,7 +131,7 @@ attachment/image_generation/retrieval 把 MB 级 base64 塞进 tool_result 直�
 | task-035 [P2] base64 内容命令族迁 pdfstream://(A4 六视图主通道) | A4#1 | cargo check + tsc |
 | task-036 [P2] 备份/恢复 tee-hash 共享读+manifest 拆分+list_backups 按 ID 直读 | A5 | cargo check |
 | task-037 [P2] 同步 mtime/size 快路径(旧清单兼容)+图片缓存 Arc 化+上限 | A5#4/A9#1 | cargo check |
-| task-038 [P2] 前端: Crepe dirty 分支序列化+会话分页懒加载接线+图片预览缓存+focus 全刷去重 | B5/B3 | tsc |
+| task-038 [P1] 前端热点包: research O(n²) 拼接增量+统计聚合 SQL 下推+题集串行分页并行化+Crepe dirty 分支+会话分页懒加载接线+图片预览缓存+focus 全刷去重 | B5/B3/B1 | tsc |
 | task-039 [P2] memory 写路径: smart-write 批量化+双重索引守卫+刷新条件修复 | A8 | cargo check |
 | task-040 [P2] ⚠️ 拖拽链路径直传(resourceDropImport+UnifiedDragDropZone+TextbookContentView office 链)——等他会脏文件合流后做 | A10/B6/B4 | tsc |
 | task-041 [P0] 终验: 全量 cargo check+tsc+对照 B1 补录 | 全部 | 双绿 |
@@ -139,4 +141,4 @@ attachment/image_generation/retrieval 把 MB 级 base64 塞进 tool_result 直�
 - **他会在飞脏文件**（四方会话共享树）: resourceDropImport.ts / UnifiedDragDropZone.tsx / LearningHubSidebar.tsx / TextbookTextareaContentView.tsx / dstu/api.ts / AttachmentUploader.tsx / useTauriDragAndDrop.ts 等——task-040 等合流; 其余任务避开或最小交集, 提交只 add 自己改的文件。
 - **契约冻结**: local_api v1.1 全部 11 端点（A7 已核, 内部 4 处优化形状不变）; LLM 工具 JSON 参数协议; 事件名已 delta 化的四条流。
 - **数据兼容**: 3 个缺索引走 Refinery 迁移（blobs.ref_count 部分索引/mindmap_versions 复合/translations.created_at）; 同步清单加字段需旧清单兼容。
-- **B1 补录**: stores+hooks 审计重试在飞, 落地后补入 §1 表与任务清单（预计以 P1/P2 前端项为主）。
+- **B1 已补录**（重试成功, 05b7810d）: 15 条发现已并入 §1/§7; top 三项入 task-038（升级 P1）, ResourceStateManager 死代码入 task-025 清单。
