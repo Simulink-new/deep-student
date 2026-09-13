@@ -73,6 +73,11 @@ pub(crate) struct PipelineContext {
     pub(crate) interleaved_blocks: Vec<MessageBlock>,
     /// 全局块索引计数器（确保块按时序排序）
     pub(crate) global_block_index: u32,
+    /// ★ perf-audit A1#3: 中间保存增量状态——用户消息已持久化标记
+    /// （旧实现每工具轮 2 次中间保存都重写用户消息, attachments+context_snapshot 重复序列化）
+    pub(crate) user_message_persisted: bool,
+    /// ★ perf-audit A1#3: 已落盘块 ID 集（块为追加不变, 已保存块跳过重写, 消灭 ΣO(R²)）
+    pub(crate) persisted_block_ids: std::collections::HashSet<String>,
 
     /// 待传递给 API 的 reasoning_content（DeepSeek/Claude 工具调用递归时使用）
     /// 在工具调用迭代中，需要将上一轮的 thinking_content 回传给 API
@@ -154,6 +159,8 @@ impl PipelineContext {
             interleaved_block_ids: Vec::new(),
             interleaved_blocks: Vec::new(),
             global_block_index: 0,
+            user_message_persisted: false,
+            persisted_block_ids: std::collections::HashSet::new(),
             pending_reasoning_for_api: None,
             pending_thought_signature: None,
             current_adapter: None,

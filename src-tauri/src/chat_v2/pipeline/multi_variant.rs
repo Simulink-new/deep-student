@@ -424,14 +424,14 @@ impl ChatV2Pipeline {
             let future = async move {
                 self_ref.execute_single_variant_with_config(
                     ctx_clone,
-                    config_id_clone,  // 传递 API 配置 ID
+                    config_id_clone,   // 传递 API 配置 ID
                     None,
-                    (*options_clone).clone(),
-                    (*user_content_clone).clone(),
+                    options_clone,     // Arc 共享，无深拷贝
+                    user_content_clone, // Arc 共享，无深拷贝
                     (*session_id_clone).clone(),
                     shared_ctx,
                     Vec::new(),
-                    (*context_refs_clone).clone(),
+                    context_refs_clone, // Arc 共享，无深拷贝
                 ).await
             };
 
@@ -1024,17 +1024,21 @@ impl ChatV2Pipeline {
         ctx: Arc<super::super::variant_context::VariantExecutionContext>,
         config_id: String,
         variant_meta: Option<crate::chat_v2::types::VariantMeta>,
-        mut options: SendOptions,
-        user_content: String,
+        options: Arc<SendOptions>,
+        user_content: Arc<String>,
         session_id: String,
         shared_context: Arc<SharedContext>,
         attachments: Vec<AttachmentInput>,
-        user_context_refs: Vec<SendContextRef>,
+        user_context_refs: Arc<Vec<SendContextRef>>,
     ) -> ChatV2Result<()> {
         const MAX_TOOL_ROUNDS: u32 = 10;
 
-        options.model_id = Some(config_id.clone());
-        options.model2_override_id = Some(config_id.clone());
+        // options 为所有变体共享的 Arc，禁止变异。原先两处就地变异改为局部变量：
+        // - `options.model_id = config_id`：LLM 调用处直接读 model_id_override；
+        // - `options.model2_override_id = config_id`：本函数内变异后从未被读取
+        //   （下游持久化读取的是单变体路径 ctx.options，与本局部副本无关），
+        //   属死写，删除。config_id 此后不再使用，直接 move 零拷贝。
+        let model_id_override = Some(config_id);
 
         if let Some(meta) = variant_meta {
             ctx.set_meta(meta);
@@ -1212,6 +1216,13 @@ impl ChatV2Pipeline {
             .map(|snapshot| session_skill_state_from_snapshot(&snapshot))
             .unwrap_or_else(|| self.load_effective_session_skill_state(&session_id, &options));
 
+        // 变体局部可变状态：原实现直接就地变异共享 options（skill_state_version、
+        // mcp_tool_schemas），Arc 共享后改为局部跟踪，行为等价（每变体独立）。
+        let mut current_skill_state_version = options.skill_state_version;
+        // 渐进披露（load_skills 动态追加工具）的变体局部工具表：
+        // 仅在真正触发时才从共享 options 物化一次（惰性 clone，见循环内）。
+        let mut variant_mcp_schemas = None;
+
         let mut tool_round = 0u32;
         loop {
             if ctx.is_cancelled() {
@@ -1268,7 +1279,7 @@ impl ChatV2Pipeline {
                 None,
                 disable_tools,
                 max_input_tokens_override,
-                options.model_id.clone(),
+                model_id_override.clone(),
                 options.temperature,
                 Some(system_prompt.clone()),
                 options.top_p,
@@ -1374,7 +1385,7 @@ impl ChatV2Pipeline {
                     &variant_session_key,
                     ctx.message_id(),
                     Some(ctx.variant_id()),
-                    options.skill_state_version,
+                    current_skill_state_version,
                     Some(round_id.as_str()),
                     &canvas_note_id,
                     &skill_contents,
@@ -1416,9 +1427,11 @@ impl ChatV2Pipeline {
 
                         if !loaded_skill_ids.is_empty() {
                             if let Some(ref embedded_tools_map) = options.skill_embedded_tools {
-                                // 追加工具 Schema 到 mcp_tool_schemas
-                                let mcp_schemas =
-                                    options.mcp_tool_schemas.get_or_insert_with(Vec::new);
+                                // 追加工具 Schema 到变体局部工具表：首次触发时才从共享
+                                // options 物化（惰性，单点必要 clone），此后循环内复用
+                                let mcp_schemas = variant_mcp_schemas.get_or_insert_with(|| {
+                                    options.mcp_tool_schemas.clone().unwrap_or_default()
+                                });
                                 let mut existing_names: std::collections::HashSet<String> =
                                     mcp_schemas.iter().map(|t| t.name.clone()).collect();
                                 let mut added_count = 0;
@@ -1460,7 +1473,7 @@ impl ChatV2Pipeline {
                             }
                             variant_skill_state = variant_skill_state
                                 .with_added_branch_local_skills(&loaded_skill_ids);
-                            options.skill_state_version = Some(variant_skill_state.version);
+                            current_skill_state_version = Some(variant_skill_state.version);
                         }
                     }
                 }
@@ -2385,12 +2398,12 @@ impl ChatV2Pipeline {
                             ctx_clone,
                             config_id_clone,
                             variant_meta_clone,
-                            (*options_clone).clone(),
-                            (*user_content_clone).clone(),
+                            options_clone, // Arc 共享，无深拷贝
+                            user_content_clone, // Arc 共享，无深拷贝
                             (*session_id_clone).clone(),
                             shared_ctx,
                             (*attachments_clone).clone(),
-                            Vec::new(),
+                            Arc::new(Vec::new()),
                         )
                         .await
                 };
@@ -2567,12 +2580,12 @@ impl ChatV2Pipeline {
                 ctx.clone(),
                 model_id.clone(),
                 None,
-                options,
-                user_content,
+                Arc::new(options),      // owned 值直接包 Arc，零拷贝
+                Arc::new(user_content), // owned 值直接包 Arc，零拷贝
                 session_id.clone(),
                 shared_context_arc,
                 user_attachments,
-                Vec::new(),
+                Arc::new(Vec::new()),
             )
             .await;
 

@@ -100,7 +100,7 @@ impl ChatV2Pipeline {
     /// - 两者都使用 INSERT OR REPLACE，不会冲突
     pub(crate) async fn save_intermediate_results(
         &self,
-        ctx: &PipelineContext,
+        ctx: &mut PipelineContext,
     ) -> ChatV2Result<()> {
         // 如果没有块需要保存，直接返回
         if ctx.interleaved_blocks.is_empty() {
@@ -160,13 +160,16 @@ impl ChatV2Pipeline {
     fn save_intermediate_results_inner(
         &self,
         conn: &crate::chat_v2::database::ChatV2PooledConnection,
-        ctx: &PipelineContext,
+        ctx: &mut PipelineContext,
         now_ms: i64,
     ) -> ChatV2Result<()> {
         // 🔧 P23 修复：中间保存也要保存用户消息
         // 否则刷新后子代理会话只有助手消息，没有用户消息（任务内容）
         // 检查是否跳过用户消息保存（编辑重发场景）
-        let skip_user_message = ctx.options.skip_user_message_save.unwrap_or(false);
+        // ★ perf-audit A1#3: 用户消息只在首次中间保存写一次(旧实现每轮重写 2R+2 次,
+        // attachments+context_snapshot 重复序列化;首次落盘后防闪退语义已满足)
+        let skip_user_message =
+            ctx.options.skip_user_message_save.unwrap_or(false) || ctx.user_message_persisted;
         if !skip_user_message {
             let user_msg_params =
                 UserMessageParams::new(ctx.session_id.clone(), ctx.user_content.clone())
@@ -180,6 +183,8 @@ impl ChatV2Pipeline {
             // 使用 INSERT OR REPLACE 保存用户消息（与 save_results 兼容）
             ChatV2Repo::create_message_with_conn(&conn, &user_msg_result.message)?;
             ChatV2Repo::create_block_with_conn(&conn, &user_msg_result.block)?;
+            // 写库成功后才置位(事务回滚时不误标)
+            ctx.user_message_persisted = true;
         }
 
         // 1. 保存助手消息（如果不存在则创建）
@@ -260,10 +265,16 @@ impl ChatV2Pipeline {
         ChatV2Repo::create_message_with_conn(&conn, &assistant_msg)?;
 
         // 2. 保存所有已生成的块
+        // ★ perf-audit A1#3: 增量落盘——块为追加不变(push 单点, 无就地变更),
+        // 已持久化块跳过(旧实现每轮全量重写此前全部块, ΣO(R²) 块次×全量 content/tool_output)
         for (index, block) in ctx.interleaved_blocks.iter().enumerate() {
+            if ctx.persisted_block_ids.contains(&block.id) {
+                continue;
+            }
             let mut block_to_save = block.clone();
             block_to_save.block_index = index as u32;
             ChatV2Repo::create_block_with_conn(&conn, &block_to_save)?;
+            ctx.persisted_block_ids.insert(block.id.clone());
         }
 
         // 3. Re-insert preserved `anki_cards` blocks deleted by the assistant message REPLACE.
@@ -978,7 +989,10 @@ impl ChatV2Pipeline {
             }
         };
         let mem_storage = std::sync::Arc::new(VfsMemoryStorage::new(
-            vfs_db.clone(), lance_store, self.llm_manager.clone()));
+            vfs_db.clone(),
+            lance_store,
+            self.llm_manager.clone(),
+        ));
 
         // ① 早期门控：读取频率 + 隐私模式配置（同步 SQLite 主键查询，亚毫秒级）
         let mem_config = crate::memory::MemoryConfig::new(mem_storage.clone());
@@ -1046,7 +1060,10 @@ impl ChatV2Pipeline {
             };
 
             let storage = std::sync::Arc::new(VfsMemoryStorage::new(
-                vfs_db.clone(), lance_store, llm_manager.clone()));
+                vfs_db.clone(),
+                lance_store,
+                llm_manager.clone(),
+            ));
             let memory_service =
                 MemoryService::new_with_storage(storage.clone(), llm_manager.clone());
 
