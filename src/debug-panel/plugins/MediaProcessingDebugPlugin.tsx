@@ -16,9 +16,7 @@
  * - media-processing-progress
  * - media-processing-completed
  * - media-processing-error
- * - pdf-processing-progress (兼容旧事件)
- * - pdf-processing-completed
- * - pdf-processing-error
+ * - 旧 pdf-processing-* 双发事件已删除（统一走 media-processing-*）
  * 
  * 监听的日志：
  * - inject_mode_change（注入模式选择）
@@ -420,62 +418,7 @@ const MediaProcessingDebugPlugin: React.FC<DebugPanelPluginProps> = ({
       });
     }).then((fn) => unlisteners.push(fn));
 
-    // 旧 PDF 事件（兼容）
-    listen<{
-      fileId: string;
-      status: {
-        stage: string;
-        currentPage?: number;
-        totalPages?: number;
-        percent: number;
-        readyModes: string[];
-      };
-    }>('pdf-processing-progress', (event) => {
-      console.log('[MediaProcessingDebug] pdf-processing-progress (legacy):', event.payload);
-      addEvent({
-        eventType: 'progress',
-        fileId: event.payload.fileId,
-        mediaType: 'pdf',
-        stage: event.payload.status.stage,
-        percent: event.payload.status.percent,
-        readyModes: event.payload.status.readyModes,
-        currentPage: event.payload.status.currentPage,
-        totalPages: event.payload.status.totalPages,
-        source: 'pdf',
-      });
-    }).then((fn) => unlisteners.push(fn));
-
-    listen<{
-      fileId: string;
-      readyModes: string[];
-    }>('pdf-processing-completed', (event) => {
-      console.log('[MediaProcessingDebug] pdf-processing-completed (legacy):', event.payload);
-      addEvent({
-        eventType: 'completed',
-        fileId: event.payload.fileId,
-        mediaType: 'pdf',
-        stage: 'completed',
-        percent: 100,
-        readyModes: event.payload.readyModes,
-        source: 'pdf',
-      });
-    }).then((fn) => unlisteners.push(fn));
-
-    listen<{
-      fileId: string;
-      error: string;
-      stage: string;
-    }>('pdf-processing-error', (event) => {
-      console.log('[MediaProcessingDebug] pdf-processing-error (legacy):', event.payload);
-      addEvent({
-        eventType: 'error',
-        fileId: event.payload.fileId,
-        mediaType: 'pdf',
-        stage: event.payload.stage,
-        error: event.payload.error,
-        source: 'pdf',
-      });
-    }).then((fn) => unlisteners.push(fn));
+    // 旧 pdf-processing-* 事件已随 Rust 侧双发删除而移除（统一走 media-processing-*）
 
     // 监听 chatV2Logger 的附件日志（完整生命周期）
     const handleChatV2Log = (e: CustomEvent<ChatV2LogEntry>) => {

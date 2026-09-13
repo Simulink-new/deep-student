@@ -2,7 +2,7 @@
  * 媒体处理进度监听 Hook（PDF + 图片）
  * 
  * 监听后端发送的媒体处理进度事件，更新全局状态。
- * 同时支持新的统一事件（media-processing-*）和旧的 PDF 事件（pdf-processing-*）
+ * 统一事件（media-processing-*）；旧 pdf-processing-* 双发已删除（双写 store/双日志）
  * 
  * @version 2.0 扩展支持图片处理
  */
@@ -57,10 +57,7 @@ interface MediaProcessingErrorPayload {
   mediaType: MediaType;
 }
 
-// 兼容旧类型别名
-type PdfProcessingProgressPayload = MediaProcessingProgressPayload;
-type PdfProcessingCompletedPayload = MediaProcessingCompletedPayload;
-type PdfProcessingErrorPayload = MediaProcessingErrorPayload;
+// 兼容旧类型别名（已随 pdf-processing-* 事件删除，仅保留统一类型）
 
 /**
  * 监听媒体处理进度事件
@@ -201,30 +198,17 @@ export function usePdfProcessingProgress(): void {
       usePdfProcessingStore.getState().setError(fileId, error, stage);
     };
     
-    // 监听新的统一事件
+    // 监听统一事件（后端已停发旧 pdf-processing-* 双发）
     void registerListener<MediaProcessingProgressPayload>('media-processing-progress', (event) => {
       handleProgress(event.payload, 'unified');
     });
-    
+
     void registerListener<MediaProcessingCompletedPayload>('media-processing-completed', (event) => {
       handleCompleted(event.payload, 'unified');
     });
-    
+
     void registerListener<MediaProcessingErrorPayload>('media-processing-error', (event) => {
       handleError(event.payload, 'unified');
-    });
-    
-    // 监听旧的 PDF 事件（兼容）
-    void registerListener<PdfProcessingProgressPayload>('pdf-processing-progress', (event) => {
-      handleProgress({ ...event.payload, mediaType: 'pdf' }, 'legacy');
-    });
-    
-    void registerListener<PdfProcessingCompletedPayload>('pdf-processing-completed', (event) => {
-      handleCompleted({ ...event.payload, mediaType: 'pdf' }, 'legacy');
-    });
-    
-    void registerListener<PdfProcessingErrorPayload>('pdf-processing-error', (event) => {
-      handleError({ ...event.payload, mediaType: 'pdf' }, 'legacy');
     });
 
     // legacy pdf_ocr_service.rs: map pdf_ocr_progress events to store updates

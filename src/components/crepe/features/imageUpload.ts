@@ -105,14 +105,13 @@ export const createImageUploader = (
         });
 
         // P1-15: 后端要求 subject 参数，使用默认值 "_global"
+        // 只传 snake_case 一份——旧代码双键同值(base64_data+base64Data)把 base64
+        // 序列化两遍,5MB 图 payload 翻倍到 13.4MB(Tauri 对 snake_case 参数自动兼容 camelCase,无需双发)
         const saved = await invoke<{ absolute_path: string; relative_path: string }>('notes_save_asset', {
           subject: '_global',
           note_id: nid,
-          noteId: nid,
           base64_data: base64,
-          base64Data: base64,
           default_ext: ext,
-          defaultExt: ext,
         });
 
         emitImageUploadDebug('upload_complete', 'success', 'notes_save_asset 返回成功', {

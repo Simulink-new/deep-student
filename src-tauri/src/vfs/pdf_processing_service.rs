@@ -576,8 +576,16 @@ impl PdfProcessingService {
         }
 
         // 更新数据库状态
-        self.update_processing_status(&file_id, start_stage, None, None, Some(generation))
-            .await?;
+        // ★ P0-3 修复：初始状态写失败（如 SQLITE_BUSY 重试耗尽）时必须移除刚插入的
+        // running_tasks 条目 —— 清理 guard 在未 spawn 的 worker 内，条目否则会永久残留，
+        // 后续所有 start_pipeline 命中 Occupied 分支静默 no-op，任务永远卡死。
+        if let Err(e) = self
+            .update_processing_status(&file_id, start_stage, None, None, Some(generation))
+            .await
+        {
+            self.running_tasks.remove(&file_id);
+            return Err(e);
+        }
 
         // 克隆 self 用于异步任务
         let service = Arc::clone(self);
@@ -664,9 +672,8 @@ impl PdfProcessingService {
                             db_err
                         );
                     }
-                    // 发送错误事件（同时发送旧事件和新事件以兼容）
+                    // 发送错误事件（统一事件）
                     if let Some(app_handle) = service.get_app_handle().await {
-                        // 新统一事件
                         let _ = app_handle.emit(
                             "media-processing-error",
                             MediaProcessingErrorEvent {
@@ -676,18 +683,6 @@ impl PdfProcessingService {
                                 media_type: mt.as_str().to_string(),
                             },
                         );
-                        // 旧 PDF 兼容事件
-                        if mt == MediaType::Pdf {
-                            let _ = app_handle.emit(
-                                "pdf-processing-error",
-                                MediaProcessingErrorEvent {
-                                    file_id: file_id_clone.clone(),
-                                    error: e.to_string(),
-                                    stage: initial_stage.as_str().to_string(),
-                                    media_type: mt.as_str().to_string(),
-                                },
-                            );
-                        }
                     }
                 }
             }
@@ -878,15 +873,15 @@ impl PdfProcessingService {
                         file_id, total_pages
                     );
 
-                    // 更新状态为 page_compression
-                    self.update_processing_status(
+                    // 更新状态为 page_compression（★ P0-3：通知性写库，失败不中断流水线）
+                    self.try_update_processing_status(
                         file_id,
                         ProcessingStage::PageCompression,
                         None,
                         None,
                         Some(generation),
                     )
-                    .await?;
+                    .await;
 
                     // 更新状态并发送进度事件（此时 image 还未就绪）
                     // ★ P1-1 修复：压缩范围 5%-20%
@@ -899,14 +894,14 @@ impl PdfProcessingService {
                         media_type: Some("pdf".to_string()),
                         failed_stages: None,
                     };
-                    self.update_processing_status(
+                    self.try_update_processing_status(
                         file_id,
                         ProcessingStage::PageCompression,
                         Some(&progress),
                         None,
                         Some(generation),
                     )
-                    .await?;
+                    .await;
                     self.emit_progress(file_id, progress, MediaType::Pdf, Some(generation))
                         .await;
 
@@ -1012,15 +1007,15 @@ impl PdfProcessingService {
                     return Ok(());
                 }
 
-                // 更新状态
-                self.update_processing_status(
+                // 更新状态（★ P0-3：通知性写库，失败不中断流水线）
+                self.try_update_processing_status(
                     file_id,
                     ProcessingStage::OcrProcessing,
                     None,
                     None,
                     Some(generation),
                 )
-                .await?;
+                .await;
 
                 // 发送进度事件
                 // ★ P1-1 修复：进度单调递增（压缩 0-20% → OCR 20-75% → 向量 75-95%）
@@ -1268,15 +1263,15 @@ impl PdfProcessingService {
                 return Ok(());
             }
 
-            // 更新状态
-            self.update_processing_status(
+            // 更新状态（★ P0-3：通知性写库，失败不中断流水线）
+            self.try_update_processing_status(
                 file_id,
                 ProcessingStage::VectorIndexing,
                 None,
                 None,
                 Some(generation),
             )
-            .await?;
+            .await;
 
             // 执行向量索引
             // 注意：索引失败不会中断流水线，错误会被记录
@@ -1317,7 +1312,11 @@ impl PdfProcessingService {
             },
         };
 
-        self.update_processing_status(
+        // ★ P0-3 修复：终态写库失败不再误判整条流水线失败。
+        // OCR 数据（ocr_pages_json / 笔记）已在 stage_ocr_processing 内落库，
+        // 此处仅为状态通知 —— 写失败时照常发送完成事件；
+        // 即使 DB 停留在中间态，下次启动 recover_stuck_tasks + ensure_ocr_pipeline 会自愈。
+        self.try_update_processing_status(
             file_id,
             if completed_with_issues {
                 ProcessingStage::CompletedWithIssues
@@ -1328,7 +1327,7 @@ impl PdfProcessingService {
             Some(now_ms),
             Some(generation),
         )
-        .await?;
+        .await;
 
         // 发送完成事件
         self.emit_completed(
@@ -1441,15 +1440,15 @@ impl PdfProcessingService {
                 return Ok(());
             }
 
-            // 更新状态
-            self.update_processing_status(
+            // 更新状态（★ P0-3：通知性写库，失败不中断流水线）
+            self.try_update_processing_status(
                 file_id,
                 ProcessingStage::ImageCompression,
                 None,
                 None,
                 Some(generation),
             )
-            .await?;
+            .await;
 
             // 发送进度事件
             self.emit_progress(
@@ -1572,15 +1571,15 @@ impl PdfProcessingService {
                 return Ok(());
             }
 
-            // 更新状态
-            self.update_processing_status(
+            // 更新状态（★ P0-3：通知性写库，失败不中断流水线）
+            self.try_update_processing_status(
                 file_id,
                 ProcessingStage::OcrProcessing,
                 None,
                 None,
                 Some(generation),
             )
-            .await?;
+            .await;
 
             // 发送进度事件
             self.emit_progress(
@@ -1722,15 +1721,15 @@ impl PdfProcessingService {
                 return Ok(());
             }
 
-            // 更新状态
-            self.update_processing_status(
+            // 更新状态（★ P0-3：通知性写库，失败不中断流水线）
+            self.try_update_processing_status(
                 file_id,
                 ProcessingStage::VectorIndexing,
                 None,
                 None,
                 Some(generation),
             )
-            .await?;
+            .await;
 
             // 执行向量索引
             if let Err(e) = self
@@ -1770,7 +1769,8 @@ impl PdfProcessingService {
             },
         };
 
-        self.update_processing_status(
+        // ★ P0-3 修复：终态写库失败不再误判整条流水线失败（同 PDF 流水线）
+        self.try_update_processing_status(
             file_id,
             if completed_with_issues {
                 ProcessingStage::CompletedWithIssues
@@ -1781,7 +1781,7 @@ impl PdfProcessingService {
             Some(now_ms),
             Some(generation),
         )
-        .await?;
+        .await;
 
         // 发送完成事件
         self.emit_completed(
@@ -2502,6 +2502,33 @@ impl PdfProcessingService {
         }
     }
 
+    /// ★ P0-3 修复：通知性状态写库（非致命版）
+    ///
+    /// 流水线中间/终态的 processing_status 落库仅用于进度展示与轮询，
+    /// 瞬时的 SQLITE_BUSY 不应让整条流水线误判为失败（否则 OCR 数据已写好
+    /// 却仍触发 set_error + 错误事件，前端出现"失败与成功同时报"）。
+    /// 失败时仅记录日志 —— 后续 emit_progress 会机会主义地重新落库状态；
+    /// 即使最终态写库失败，下次启动的 recover_stuck_tasks + ensure_ocr_pipeline
+    /// 会依据 ocr_pages_json 检查点自愈。
+    async fn try_update_processing_status(
+        &self,
+        file_id: &str,
+        stage: ProcessingStage,
+        progress: Option<&ProcessingProgress>,
+        completed_at: Option<i64>,
+        generation: Option<u64>,
+    ) {
+        if let Err(e) = self
+            .update_processing_status(file_id, stage, progress, completed_at, generation)
+            .await
+        {
+            warn!(
+                "[PdfProcessingService] Non-fatal status write failure for file {} (stage: {:?}): {}",
+                file_id, stage, e
+            );
+        }
+    }
+
     /// 设置处理错误
     pub fn set_error(
         &self,
@@ -2606,11 +2633,35 @@ impl PdfProcessingService {
         }
     }
 
+    /// 判断 processing_status 是否为"活动中间态"（非终态）
+    ///
+    /// 与 recover_stuck_tasks 的重置范围一致，另含 pending/processing
+    /// （pending 是 recover 重置后的状态，同样不代表有任务在跑）。
+    fn is_active_stage_str(stage: &str) -> bool {
+        matches!(
+            stage,
+            "pending"
+                | "processing"
+                | "text_extraction"
+                | "page_rendering"
+                | "page_compression"
+                | "image_compression"
+                | "ocr_processing"
+                | "vector_indexing"
+        )
+    }
+
     /// 重试失败的处理
     ///
     /// ## P1 修复：根据媒体类型选择正确的重试起始阶段
     /// - PDF：从 OcrProcessing 开始（文本提取和页面渲染在上传时已完成）
     /// - 图片：从 ImageCompression 开始（完整重新处理）
+    ///
+    /// ## P0-3 修复：识别"假运行中"旧状态
+    /// 进程被杀后 DB 可能停留在 pending/中间态，但内存中并无任务。
+    /// 此前 retry 对这类状态直接拒绝（仅接受 error/completed_with_issues），
+    /// 导致文件永远无法重试。现在以 running_tasks 内存状态为准：
+    /// DB 中间态 + 内存无任务 → 视为可重试的旧状态残留。
     pub async fn retry(self: &Arc<Self>, file_id: &str) -> VfsResult<()> {
         // 获取当前状态
         let status = self.get_status(file_id)?;
@@ -2630,6 +2681,23 @@ impl PdfProcessingService {
                 );
 
                 // 重置状态并重新开始
+                self.update_processing_status(file_id, ProcessingStage::Pending, None, None, None)
+                    .await?;
+                self.start_pipeline(file_id, Some(start_stage)).await
+            }
+            // ★ P0-3：DB 显示中间态但内存无任务 → 旧状态残留（进程被杀/任务泄漏），允许重试
+            Some(s) if Self::is_active_stage_str(&s.stage) && !self.is_running(file_id) => {
+                let media_type = self.detect_media_type(file_id)?;
+                let start_stage = match media_type {
+                    MediaType::Pdf => ProcessingStage::OcrProcessing,
+                    MediaType::Image => ProcessingStage::ImageCompression,
+                };
+
+                info!(
+                    "[MediaProcessingService] Retrying file {} from stale stage '{}' (no running task; media_type={:?})",
+                    file_id, s.stage, media_type
+                );
+
                 self.update_processing_status(file_id, ProcessingStage::Pending, None, None, None)
                     .await?;
                 self.start_pipeline(file_id, Some(start_stage)).await
@@ -2903,16 +2971,6 @@ impl PdfProcessingService {
                     e
                 );
             }
-
-            // 发送旧 PDF 兼容事件（仅 PDF）
-            if media_type == MediaType::Pdf {
-                if let Err(e) = app_handle.emit("pdf-processing-progress", &event) {
-                    warn!(
-                        "[MediaProcessingService] Failed to emit pdf-processing-progress event: {}",
-                        e
-                    );
-                }
-            }
         }
     }
 
@@ -2946,16 +3004,6 @@ impl PdfProcessingService {
                     e
                 );
             }
-
-            // 发送旧 PDF 兼容事件（仅 PDF）
-            if media_type == MediaType::Pdf {
-                if let Err(e) = app_handle.emit("pdf-processing-completed", &event) {
-                    warn!(
-                        "[MediaProcessingService] Failed to emit pdf-processing-completed event: {}",
-                        e
-                    );
-                }
-            }
         }
     }
 
@@ -2986,16 +3034,6 @@ impl PdfProcessingService {
                     "[MediaProcessingService] Failed to emit media-processing-error event: {}",
                     e
                 );
-            }
-
-            // 发送旧 PDF 兼容事件（仅 PDF）
-            if media_type == MediaType::Pdf {
-                if let Err(e) = app_handle.emit("pdf-processing-error", &event) {
-                    warn!(
-                        "[MediaProcessingService] Failed to emit pdf-processing-error event: {}",
-                        e
-                    );
-                }
             }
         }
     }

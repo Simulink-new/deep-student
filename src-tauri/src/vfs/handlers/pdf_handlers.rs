@@ -543,9 +543,9 @@ pub async fn vfs_retry_pdf_processing(
 /// ## 说明
 /// 此命令异步启动流水线，立即返回。
 /// 前端应监听以下事件获取进度：
-/// - `pdf-processing-progress`: 进度更新
-/// - `pdf-processing-completed`: 处理完成
-/// - `pdf-processing-error`: 处理错误
+/// - `media-processing-progress`: 进度更新
+/// - `media-processing-completed`: 处理完成
+/// - `media-processing-error`: 处理错误
 #[tauri::command]
 pub async fn vfs_start_pdf_processing(
     app_handle: tauri::AppHandle,

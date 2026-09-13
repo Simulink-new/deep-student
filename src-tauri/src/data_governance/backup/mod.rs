@@ -1673,9 +1673,10 @@ impl BackupManager {
 
                 match step_result {
                     StepResult::Done => break,
-                    StepResult::More | StepResult::Busy | StepResult::Locked => {
-                        std::thread::sleep(Duration::from_millis(50));
-                    }
+                    // More: 还有剩余页,立即继续——旧实现此处每 100 页 sleep 50ms,
+                    // 200MB 库累计纯睡眠 25s+,吞吐被人为压到 ~8MB/s
+                    StepResult::More => continue,
+                    // Busy/Locked: 源库被并发写入占用,退避等锁
                     _ => {
                         std::thread::sleep(Duration::from_millis(50));
                     }
@@ -2420,6 +2421,8 @@ impl BackupManager {
             loop {
                 match backup.step(100)? {
                     StepResult::Done => break,
+                    // More 不睡眠,仅 Busy/Locked 退避(与 backup_single_database 对齐)
+                    StepResult::More => continue,
                     _ => std::thread::sleep(Duration::from_millis(50)),
                 }
             }
