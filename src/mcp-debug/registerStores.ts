@@ -63,11 +63,7 @@ export async function registerAllStores(): Promise<void> {
       module: () => import('../stores/ankiQueueStore'),
       exportName: 'useAnkiQueueStore',
     },
-    {
-      name: 'templateAI',
-      module: () => import('../stores/templateAiStore'),
-      exportName: 'useTemplateAIStore',
-    },
+    // A11#13: templateAI 死引擎已删（Rust 无发射方,前端零实例化）
     // MindMap 相关
     {
       name: 'mindmap',

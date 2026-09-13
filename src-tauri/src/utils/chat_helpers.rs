@@ -1,7 +1,6 @@
 use crate::models::ChatMessage;
-use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
-use tauri::{Emitter, Window};
+use serde_json::Value;
+use std::collections::HashMap;
 
 fn provider_icon_for_origin(origin: &str) -> &'static str {
     match origin {
@@ -62,106 +61,7 @@ fn augment_source_metadata(
     }
 }
 
-fn emit_unified_sources(window: &Window, stream_event: &str, stage: &str, sources: &[Value]) {
-    if sources.is_empty() {
-        return;
-    }
-
-    let mut total = 0usize;
-    let mut groups: BTreeMap<String, serde_json::Value> = BTreeMap::new();
-
-    for source in sources {
-        if let Value::Object(obj) = source {
-            let origin = obj
-                .get("provider_group")
-                .and_then(|v| v.as_str())
-                .or_else(|| obj.get("origin").and_then(|v| v.as_str()))
-                .unwrap_or("rag");
-            let provider_id = obj
-                .get("provider_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown_provider");
-            let provider_label = obj
-                .get("provider_label")
-                .and_then(|v| v.as_str())
-                .unwrap_or(provider_id);
-            let provider_icon = obj
-                .get("provider_icon")
-                .and_then(|v| v.as_str())
-                .unwrap_or_else(|| provider_icon_for_origin(origin));
-
-            let key = format!("{}::{}", origin, provider_id);
-            let entry = groups.entry(key).or_insert_with(|| {
-                json!({
-                    "group": origin,
-                    "provider_id": provider_id,
-                    "provider_label": provider_label,
-                    "provider_icon": provider_icon,
-                    "items": Vec::<Value>::new(),
-                })
-            });
-
-            if let Value::Object(entry_obj) = entry {
-                if let Some(items) = entry_obj.get_mut("items").and_then(|v| v.as_array_mut()) {
-                    items.push(source.clone());
-                }
-            }
-
-            total += 1;
-        }
-    }
-
-    if total == 0 {
-        return;
-    }
-
-    let normalized_groups: Vec<Value> = groups
-        .into_iter()
-        .map(|(_, value)| {
-            if let Value::Object(mut obj) = value {
-                let count = if let Some(items_value) = obj.get_mut("items") {
-                    if let Some(items) = items_value.as_array_mut() {
-                        items.sort_by(|a, b| {
-                            let score_a = a
-                                .as_object()
-                                .and_then(|o| o.get("score"))
-                                .and_then(|s| s.as_f64())
-                                .unwrap_or(0.0);
-                            let score_b = b
-                                .as_object()
-                                .and_then(|o| o.get("score"))
-                                .and_then(|s| s.as_f64())
-                                .unwrap_or(0.0);
-                            score_b
-                                .partial_cmp(&score_a)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                        items.len() as u64
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                obj.insert("count".into(), Value::Number(count.into()));
-                Value::Object(obj)
-            } else {
-                value
-            }
-        })
-        .collect();
-
-    let payload = json!({
-        "stage": stage,
-        "total": total,
-        "groups": normalized_groups,
-    });
-
-    let event_name = format!("{}_unified_sources", stream_event);
-    if let Err(e) = window.emit(&event_name, &payload) {
-        log::debug!("emit unified_sources failed: {}", e);
-    }
-}
+// A11#2: emit_unified_sources 整函数已删——零调用且唯一职责是发 {}_unified_sources 孤儿事件(前端零监听)
 
 /// 构建错题场景的上下文
 ///

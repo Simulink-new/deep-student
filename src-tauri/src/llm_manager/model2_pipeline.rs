@@ -1446,13 +1446,7 @@ impl LLMManager {
                     if let Some(last_user_msg) =
                         chat_history.iter().filter(|m| m.role == "user").last()
                     {
-                        let memory_enabled_effective = memory_enabled_from_context.unwrap_or(true);
-                        if memory_enabled_effective {
-                            let _ = window.emit(
-                                &format!("{}_memory_sources", stream_event),
-                                &serde_json::json!({"stage":"disabled"}),
-                            );
-                        }
+                        // A11#2: _memory_sources 孤儿emit已删(前端零监听)
 
                         let rag_enabled = context
                             .get("rag_enabled")
@@ -1630,16 +1624,7 @@ impl LLMManager {
 
         // 发出开始事件
         let request_id = Uuid::new_v4().to_string();
-        if let Err(e) = window.emit(
-            &format!("{}_start", stream_event),
-            &json!({
-                "id": request_id,
-                "model": config.model,
-                "request_bytes": request_bytes
-            }),
-        ) {
-            warn!("发送开始事件失败: {}", e);
-        }
+        // A11#2: _start 孤儿emit已删(前端零监听)
 
         // ERR-01 修复：HTTP 错误码区分处理与指数退避重试
         const MAX_RETRIES: u32 = 3;
@@ -1809,28 +1794,7 @@ impl LLMManager {
             config.base_url,
             config.model
         );
-        // P1修复：生命周期对齐 - 发送start和id事件
-        if let Err(e) = window.emit(
-            &format!("{}_start", stream_event),
-            &json!({
-                "id": stream_event,
-                "model": config.model,
-                "request_bytes": request_bytes
-            }),
-        ) {
-            warn!("发送开始事件失败: {}", e);
-        }
-
-        if let Err(e) = window.emit(
-            &format!("{}_id", stream_event),
-            &json!({
-                "request_id": stream_event,
-                "stream_event": stream_event,
-                "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-            }),
-        ) {
-            warn!("发送ID事件失败: {}", e);
-        }
+        // A11#2: _start/_id 孤儿emit已删(前端零监听)
         // 用量日志：开始（使用 FileManager 的 app_data_dir）
         {
             let dir = self.file_manager.get_app_data_dir().to_path_buf();
@@ -1871,19 +1835,7 @@ impl LLMManager {
                     registry_cancelled,
                     cancel_flag
                 );
-                // P1修复：生命周期对齐 - 发送cancelled事件
-                if let Err(e) = window.emit(
-                    &format!("{}_cancelled", stream_event),
-                    &json!({
-                        "id": request_id,
-                        "reason": "user_cancelled",
-                        "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                    }),
-                ) {
-                    warn!("发送取消事件失败: {}", e);
-                } else {
-                    debug!("[Cancel] 已发送 {}_cancelled 事件", stream_event);
-                }
+                // A11#2: _cancelled 孤儿emit已删(前端零监听)
                 was_cancelled = true;
                 debug!("[Cancel] 流循环已中断，退出 while 循环");
                 break;
@@ -1939,23 +1891,9 @@ impl LLMManager {
                                 crate::providers::StreamEvent::ReasoningChunk(reasoning) => {
                                     reasoning_content.push_str(&reasoning);
 
-                                    let reasoning_chunk = StreamChunk {
-                                        content: reasoning.clone(),
-                                        is_complete: false,
-                                        chunk_id: format!(
-                                            "{}_reasoning_chunk_{}",
-                                            request_id, chunk_counter
-                                        ),
-                                    };
-
-                                    // 🔧 修复：当 hook 存在时由 hook 负责发送事件
+                                    // A11#2: _reasoning 孤儿emit已删(前端零监听)；hook 路径保留
                                     if let Some(h) = self.get_hook(stream_event).await {
                                         h.on_reasoning_chunk(&reasoning);
-                                    } else if let Err(e) = window.emit(
-                                        &format!("{}_reasoning", stream_event),
-                                        &reasoning_chunk,
-                                    ) {
-                                        warn!("发送思维链块失败: {}", e);
                                     }
                                 }
                                 crate::providers::StreamEvent::ThoughtSignature(signature) => {
@@ -2093,35 +2031,13 @@ impl LLMManager {
                                 crate::providers::StreamEvent::Usage(usage_value) => {
                                     // 存储 usage 数据以便最终记录到数据库
                                     captured_usage = Some(usage_value.clone());
-                                    // emit usage 事件
-                                    if let Err(e) = window
-                                        .emit(&format!("{}_usage", stream_event), &usage_value)
-                                    {
-                                        error!("发送用量事件失败: {}", e);
-                                    }
+                                    // A11#2: _usage 孤儿emit已删(前端零监听)
                                     if let Some(h) = self.get_hook(stream_event).await {
                                         h.on_usage(&usage_value);
                                     }
                                 }
-                                crate::providers::StreamEvent::SafetyBlocked(safety_info) => {
-                                    // emit safety_blocked 事件
-                                    if let Err(e) = window.emit(
-                                        &format!("{}_safety_blocked", stream_event),
-                                        &safety_info,
-                                    ) {
-                                        error!("发送安全阻断事件失败: {}", e);
-                                    }
-                                    // 同时发送通用错误事件
-                                    let error_event = json!({
-                                        "type": "safety_error",
-                                        "message": "Request blocked due to safety policies",
-                                        "details": safety_info
-                                    });
-                                    if let Err(e) = window
-                                        .emit(&format!("{}_error", stream_event), &error_event)
-                                    {
-                                        error!("发送安全错误事件失败: {}", e);
-                                    }
+                                crate::providers::StreamEvent::SafetyBlocked(_safety_info) => {
+                                    // A11#2: _safety_blocked/_error 孤儿emit已删(前端零监听)
                                 }
                                 crate::providers::StreamEvent::Done => {
                                     stream_ended = true;
@@ -2219,20 +2135,7 @@ impl LLMManager {
                             "{}没有接收到任何内容，这是完全失败",
                             chat_timing::format_elapsed_prefix(stream_event)
                         );
-                        // 发送作用域错误事件
-                        let error_event = format!("{}_error", stream_event);
-                        let error_payload = json!({
-                            "error": format!("流式请求失败: {}", e),
-                            "stream_event": stream_event,
-                            "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                        });
-                        if let Err(emit_err) = window.emit(&error_event, &error_payload) {
-                            error!("发送作用域错误事件失败: {}", emit_err);
-                        }
-                        // 同时发送兼容性全局错误事件
-                        if let Err(emit_err) = window.emit("stream_error", &error_payload) {
-                            error!("发送全局错误事件失败: {}", emit_err);
-                        }
+                        // A11#2: _error 与 stream_error 孤儿emit已删(前端零监听)
                         return Err(AppError::network(format!("流式请求失败: {}", e)));
                     }
                 }
@@ -2275,21 +2178,9 @@ impl LLMManager {
                         crate::providers::StreamEvent::ReasoningChunk(reasoning) => {
                             reasoning_content.push_str(&reasoning);
 
-                            let reasoning_chunk = StreamChunk {
-                                content: reasoning.clone(),
-                                is_complete: false,
-                                chunk_id: format!(
-                                    "{}_reasoning_chunk_{}",
-                                    request_id, chunk_counter
-                                ),
-                            };
-
+                            // A11#2: _reasoning 孤儿emit已删(前端零监听)；hook 路径保留
                             if let Some(h) = self.get_hook(stream_event).await {
                                 h.on_reasoning_chunk(&reasoning);
-                            } else if let Err(e) = window
-                                .emit(&format!("{}_reasoning", stream_event), &reasoning_chunk)
-                            {
-                                warn!("发送剩余思维链块失败: {}", e);
                             }
                         }
                         _ => { /* 忽略其他事件类型（Done/ToolCall/Usage等已在主循环处理） */
@@ -2499,30 +2390,12 @@ impl LLMManager {
         }
         // 如果有思维链内容，也发送思维链完成信号
         if !was_cancelled && enable_chain_of_thought && !reasoning_content.is_empty() {
-            let reasoning_final_chunk = StreamChunk {
-                content: reasoning_content.clone(), // 也发送完整的思维链内容
-                is_complete: true,
-                chunk_id: format!("{}_reasoning_final_chunk_{}", request_id, chunk_counter + 1),
-            };
-
             debug!(
                 "[思维链总结] 准备发送最终思维链: 总长度={}, 内容预览={}",
                 reasoning_content.len(),
                 &reasoning_content.chars().take(100).collect::<String>()
             );
-
-            if let Err(e) = window.emit(
-                &format!("{}_reasoning", stream_event),
-                &reasoning_final_chunk,
-            ) {
-                error!("发送思维链完成信号失败: {}", e);
-            } else {
-                debug!(
-                    "发送思维链完成信号成功，内容长度: {}, 事件名: {}_reasoning",
-                    reasoning_content.len(),
-                    stream_event
-                );
-            }
+            // A11#2: _reasoning 孤儿emit已删(前端零监听)
         } else if !was_cancelled && enable_chain_of_thought && reasoning_content.is_empty() {
             warn!("[思维链总结] 启用了思维链但 reasoning_content 为空!");
         }
@@ -2889,16 +2762,7 @@ impl LLMManager {
                 if let Some(_last_user_msg) =
                     chat_history.iter().filter(|m| m.role == "user").last()
                 {
-                    let memory_enabled_effective = context
-                        .get("memory_enabled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true);
-                    if memory_enabled_effective {
-                        let _ = window.emit(
-                            &format!("{}_memory_sources", stream_event),
-                            &serde_json::json!({"stage":"disabled"}),
-                        );
-                    }
+                    // A11#2: _memory_sources 孤儿emit已删(前端零监听)
 
                     let rag_enabled = context
                         .get("rag_enabled")
@@ -3072,16 +2936,7 @@ impl LLMManager {
 
         // 发出开始事件
         let request_id = Uuid::new_v4().to_string();
-        if let Err(e) = window.emit(
-            &format!("{}_start", stream_event),
-            &json!({
-                "id": request_id,
-                "model": config.model,
-                "request_bytes": request_bytes
-            }),
-        ) {
-            warn!("发送开始事件失败: {}", e);
-        }
+        // A11#2: _start 孤儿emit已删(前端零监听)
 
         let response = request_builder
             .json(&preq.body)
@@ -3101,36 +2956,7 @@ impl LLMManager {
 
             error!("{}", error_msg);
 
-            let error_payload = json!({
-                "type": "http_error",
-                "error": error_msg,
-                "status": status_code,
-                "stream_event": stream_event,
-                "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-            });
-
-            if let Err(e) = window.emit(&format!("{}_error", stream_event), &error_payload) {
-                warn!("发送HTTP错误事件失败: {}", e);
-            }
-
-            let duration_ms = start_instant.elapsed().as_millis();
-            if let Err(e) = window.emit(
-                &format!("{}_end", stream_event),
-                &json!({
-                    "reason": "error",
-                    "stats": {
-                        "chunk_count": 0,
-                        "request_bytes": request_bytes,
-                        "response_bytes": error_text.len(),
-                        "duration_ms": duration_ms,
-                        "approx_tokens_in": 0,
-                        "approx_tokens_out": 0,
-                        "retry_count": 0
-                    }
-                }),
-            ) {
-                warn!("发送错误结束事件失败: {}", e);
-            }
+            // A11#2: _error/_end 孤儿emit已删(前端零监听)
 
             self.clear_cancel_channel(stream_event).await;
             return Err(AppError::llm(error_msg));
@@ -3162,17 +2988,7 @@ impl LLMManager {
                     "[Cancel] Breaking stream loop for {} (custom config)",
                     stream_event
                 );
-                // P1修复：生命周期对齐 - 发送cancelled事件
-                if let Err(e) = window.emit(
-                    &format!("{}_cancelled", stream_event),
-                    &json!({
-                        "id": request_id,
-                        "reason": "user_cancelled",
-                        "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                    }),
-                ) {
-                    warn!("发送取消事件失败: {}", e);
-                }
+                // A11#2: _cancelled 孤儿emit已删(前端零监听)
                 was_cancelled = true;
                 break;
             }
@@ -3215,22 +3031,7 @@ impl LLMManager {
                                 }
                                 crate::providers::StreamEvent::ReasoningChunk(reasoning) => {
                                     reasoning_content.push_str(&reasoning);
-
-                                    let reasoning_chunk = StreamChunk {
-                                        content: reasoning.clone(),
-                                        is_complete: false,
-                                        chunk_id: format!(
-                                            "{}_reasoning_chunk_{}",
-                                            request_id, chunk_counter
-                                        ),
-                                    };
-
-                                    if let Err(e) = window.emit(
-                                        &format!("{}_reasoning", stream_event),
-                                        &reasoning_chunk,
-                                    ) {
-                                        warn!("发送思维链块失败: {}", e);
-                                    }
+                                    // A11#2: _reasoning 孤儿emit已删(前端零监听)
                                 }
                                 crate::providers::StreamEvent::ThoughtSignature(_signature) => {
                                     // Gemini 3 思维签名（此函数不使用 hook，直接忽略）
@@ -3346,31 +3147,10 @@ impl LLMManager {
                                 crate::providers::StreamEvent::Usage(usage_value) => {
                                     // 存储 usage 数据
                                     captured_usage = Some(usage_value.clone());
-                                    if let Err(e) = window
-                                        .emit(&format!("{}_usage", stream_event), &usage_value)
-                                    {
-                                        error!("发送用量事件失败: {}", e);
-                                    }
+                                    // A11#2: _usage 孤儿emit已删(前端零监听)
                                 }
-                                crate::providers::StreamEvent::SafetyBlocked(safety_info) => {
-                                    // emit safety_blocked 事件
-                                    if let Err(e) = window.emit(
-                                        &format!("{}_safety_blocked", stream_event),
-                                        &safety_info,
-                                    ) {
-                                        error!("发送安全阻断事件失败: {}", e);
-                                    }
-                                    // 同时发送通用错误事件
-                                    let error_event = json!({
-                                        "type": "safety_error",
-                                        "message": "Request blocked due to safety policies",
-                                        "details": safety_info
-                                    });
-                                    if let Err(e) = window
-                                        .emit(&format!("{}_error", stream_event), &error_event)
-                                    {
-                                        error!("发送安全错误事件失败: {}", e);
-                                    }
+                                crate::providers::StreamEvent::SafetyBlocked(_safety_info) => {
+                                    // A11#2: _safety_blocked/_error 孤儿emit已删(前端零监听)
                                 }
                                 crate::providers::StreamEvent::Done => {
                                     stream_ended = true;
@@ -3473,21 +3253,7 @@ impl LLMManager {
                         }
                         crate::providers::StreamEvent::ReasoningChunk(reasoning) => {
                             reasoning_content.push_str(&reasoning);
-
-                            let reasoning_chunk = StreamChunk {
-                                content: reasoning.clone(),
-                                is_complete: false,
-                                chunk_id: format!(
-                                    "{}_reasoning_chunk_{}",
-                                    request_id, chunk_counter
-                                ),
-                            };
-
-                            if let Err(e) = window
-                                .emit(&format!("{}_reasoning", stream_event), &reasoning_chunk)
-                            {
-                                warn!("发送剩余思维链块失败: {}", e);
-                            }
+                            // A11#2: _reasoning 孤儿emit已删(前端零监听)
                         }
                         _ => { /* 忽略其他事件类型（Done/ToolCall/Usage等已在主循环处理） */
                         }
@@ -3504,37 +3270,7 @@ impl LLMManager {
         // 此函数只负责流式响应的收集，工具调用通过 LLMStreamHooks 回调给上层
 
         if was_cancelled {
-            // P1修复：生命周期对齐 - 发送专门的cancelled事件，同时保持end事件
-            if let Err(e) = window.emit(
-                &format!("{}_cancelled", stream_event),
-                &json!({
-                    "id": request_id,
-                    "reason": "user_cancelled",
-                    "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                }),
-            ) {
-                warn!("发送取消事件失败: {}", e);
-            }
-
-            // 取消：仍发送 end 事件用于兼容性
-            let duration_ms = start_instant.elapsed().as_millis();
-            if let Err(e) = window.emit(
-                &format!("{}_end", stream_event),
-                &json!({
-                    "reason": "cancelled",
-                    "stats": {
-                        "chunk_count": chunk_counter,
-                        "request_bytes": request_bytes,
-                        "response_bytes": response_bytes,
-                        "duration_ms": duration_ms,
-                        "approx_tokens_in": 0,
-                        "approx_tokens_out": 0,
-                        "retry_count": 0
-                    }
-                }),
-            ) {
-                warn!("发送结束事件失败: {}", e);
-            }
+            // A11#2: _cancelled/_end 孤儿emit已删(前端零监听)
         } else {
             // 成功：发送完成块与 end(success)
             let final_chunk = StreamChunk {
@@ -3545,43 +3281,11 @@ impl LLMManager {
             if let Err(e) = window.emit(stream_event, &final_chunk) {
                 error!("发送最终完成信号失败: {}", e);
             }
-            // 如果有思维链内容，也发送思维链完成信号
-            if enable_chain_of_thought && !reasoning_content.is_empty() {
-                let reasoning_final_chunk = StreamChunk {
-                    content: reasoning_content.clone(),
-                    is_complete: true,
-                    chunk_id: format!("reasoning_final_chunk_{}", chunk_counter + 1),
-                };
-                if let Err(e) = window.emit(
-                    &format!("{}_reasoning", stream_event),
-                    &reasoning_final_chunk,
-                ) {
-                    error!("发送思维链完成信号失败: {}", e);
-                }
-            }
+            // A11#2: _reasoning 孤儿emit已删(前端零监听)
             // end(success) 事件在统一统计段发送
         }
 
-        // 结束事件（附带统计信息）
-        let duration_ms = start_instant.elapsed().as_millis();
-        let approx_tokens_out = crate::utils::token_budget::estimate_tokens(&full_content);
-        if let Err(e) = window.emit(
-            &format!("{}_end", stream_event),
-            &json!({
-                "reason": "success",
-                "stats": {
-                    "chunk_count": chunk_counter,
-                    "request_bytes": request_bytes,
-                    "response_bytes": response_bytes,
-                    "duration_ms": duration_ms,
-                    "approx_tokens_in": 0,
-                    "approx_tokens_out": approx_tokens_out,
-                    "retry_count": 0
-                }
-            }),
-        ) {
-            warn!("发送结束事件失败: {}", e);
-        }
+        // A11#2: _end 孤儿emit已删(前端零监听)
 
         // 用量日志：结束（脱敏写入，使用 FileManager）
         {

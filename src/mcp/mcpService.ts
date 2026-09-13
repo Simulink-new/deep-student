@@ -1620,7 +1620,7 @@ export function setupTauriBridge() {
         const res = await McpService.callTool(req.tool, req.args, req.timeoutMs ?? 60000, req.serverId);
         const payload: BridgeResponse = { correlationId: req.correlationId, ...res } as any;
         // Best-effort emit: response delivery failure is non-fatal; the caller will time out
-        try { await emit('mcp-bridge-response', payload); } catch { /* best-effort */ }
+        // A11#11: 裸通道 mcp-bridge-response 零监听已删——Rust 只听 scoped `:{corr}` 通道
         try { await emit(`mcp-bridge-response:${req.correlationId}`, payload); } catch { /* best-effort */ }
       }).catch((err) => { debugLog.error('[MCP] Failed to register bridge listener for mcp-bridge-request:', err); });
 
@@ -1628,7 +1628,6 @@ export function setupTauriBridge() {
         const { correlationId } = ev.payload || { correlationId: '' };
         const tools = await McpService.listTools().catch(() => []);
         const resp = { correlationId, tools };
-        try { await emit('mcp-bridge-tools-response', resp); } catch { /* best-effort */ }
         try { await emit(`mcp-bridge-tools-response:${correlationId}`, resp); } catch { /* best-effort */ }
       }).catch((err) => { debugLog.error('[MCP] Failed to register bridge listener for mcp-bridge-tools-request:', err); });
 
@@ -1636,7 +1635,6 @@ export function setupTauriBridge() {
         const { correlationId } = ev.payload || { correlationId: '' };
         const prompts = await McpService.listPrompts().catch(() => []);
         const resp = { correlationId, prompts };
-        try { await emit('mcp-bridge-prompts-response', resp); } catch { /* best-effort */ }
         try { await emit(`mcp-bridge-prompts-response:${correlationId}`, resp); } catch { /* best-effort */ }
       }).catch((err) => { debugLog.error('[MCP] Failed to register bridge listener for mcp-bridge-prompts-request:', err); });
 
@@ -1644,7 +1642,6 @@ export function setupTauriBridge() {
         const { correlationId } = ev.payload || { correlationId: '' };
         const resources = await McpService.listResources().catch(() => []);
         const resp = { correlationId, resources };
-        try { await emit('mcp-bridge-resources-response', resp); } catch { /* best-effort */ }
         try { await emit(`mcp-bridge-resources-response:${correlationId}`, resp); } catch { /* best-effort */ }
       }).catch((err) => { debugLog.error('[MCP] Failed to register bridge listener for mcp-bridge-resources-request:', err); });
 
@@ -1653,11 +1650,9 @@ export function setupTauriBridge() {
         try {
           const content = await McpService.readResource(uri);
           const respOk = { correlationId, ok: true, content };
-          await emit('mcp-bridge-resource-read-response', respOk);
           await emit(`mcp-bridge-resource-read-response:${correlationId}`, respOk);
         } catch (e: any) {
           const respErr = { correlationId, ok: false, error: getErrorMessage(e) } as any;
-          await emit('mcp-bridge-resource-read-response', respErr);
           await emit(`mcp-bridge-resource-read-response:${correlationId}`, respErr);
         }
       }).catch((err) => { debugLog.error('[MCP] Failed to register bridge listener for mcp-bridge-resource-read-request:', err); });

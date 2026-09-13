@@ -32,7 +32,6 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tauri::Emitter;
 
 use super::arg_utils::{get_json_array_arg, get_string_array_arg};
 use super::executor::{ExecutionContext, ToolError, ToolExecutor, ToolResult, ToolSensitivity};
@@ -42,7 +41,7 @@ use crate::chat_v2::repo::ChatV2Repo;
 use crate::chat_v2::types::{ChatSession, PersistStatus, SessionGroup, ToolCall, ToolResultInfo};
 
 /// 会话管理变更事件名（前端监听以刷新侧边栏）
-const SESSION_MGMT_EVENT: &str = "session_management_change";
+// A11#7: SESSION_MGMT_EVENT 常量随孤儿 emit 删除
 
 // ============================================================================
 // 常量
@@ -1150,22 +1149,7 @@ impl ToolExecutor for SessionToolExecutor {
                     duration_ms
                 );
 
-                // 写操作成功后通知前端刷新侧边栏
-                let is_write_op = !matches!(
-                    tool_name,
-                    "session_list"
-                        | "session_search"
-                        | "session_get"
-                        | "group_list"
-                        | "tag_list_all"
-                        | "session_stats"
-                );
-                if is_write_op {
-                    let _ = ctx.window.emit(
-                        SESSION_MGMT_EVENT,
-                        json!({"tool": tool_name, "sessionId": ctx.session_id}),
-                    );
-                }
+                // A11#7: session_management_change 孤儿 emit 已删（前端零监听）
 
                 let tool_result = ToolResultInfo::success(
                     Some(call.id.clone()),

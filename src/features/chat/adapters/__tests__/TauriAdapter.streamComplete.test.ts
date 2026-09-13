@@ -20,9 +20,6 @@ vi.mock('../../core/middleware/autoSave', () => ({
   autoSave: {
     forceImmediateSave: vi.fn(() => Promise.resolve()),
   },
-  streamingBlockSaver: {
-    cleanup: vi.fn(),
-  },
 }));
 
 import { ChatV2TauriAdapter } from '../TauriAdapter';

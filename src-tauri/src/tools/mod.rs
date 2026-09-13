@@ -1028,35 +1028,7 @@ impl Tool for WebSearchTool {
             })
             .unwrap_or_default();
 
-        // 5) 可选：提前发来源事件以加速 UI 展示
-        if let (Some(window), Some(stream_event)) = (ctx.window, ctx.stream_event) {
-            if !citations.is_empty() {
-                let stage = ctx.stage.unwrap_or("inline");
-                let payload_sources: Vec<Value> = citations
-                    .iter()
-                    .map(|c| {
-                        json!({
-                            "document_id": c.document_id,
-                            "file_name": c.file_name,
-                            "chunk_text": c.chunk_text,
-                            "score": c.score,
-                            "chunk_index": c.chunk_index,
-                            "source_type": "search",
-                            "origin": "web_search",
-                            "stage": stage,
-                        })
-                    })
-                    .collect();
-                let _ = window.emit(
-                    &format!("{}_web_search", stream_event),
-                    &json!({
-                        "sources": payload_sources,
-                        "stage": stage,
-                        "tool_name": "web_search",
-                    }),
-                );
-            }
-        }
+        // A11#2: _web_search 孤儿emit已删(前端零监听)；来源数据经 citations 返回值送达
 
         let usage = out.usage.clone();
         let inject_text = out.inject_text.clone();

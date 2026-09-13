@@ -5,7 +5,7 @@ use crate::canonical_tools::{
 use crate::models::{AppError, ChatMessage};
 use crate::providers::ProviderAdapter;
 use futures_util::StreamExt;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -475,119 +475,8 @@ impl super::LLMManager {
     }
 
     // ==================== Streaming events ====================
-
-    /// 发送专用流式事件
-    fn emit_specialized_source_events(
-        window: &Window,
-        stream_event: &str,
-        tc: &crate::models::ToolCall,
-        tr: &crate::models::ToolResult,
-        citations_value: &serde_json::Value,
-    ) {
-        if tr.ok && !citations_value.is_null() {
-            if let serde_json::Value::Array(citations_array) = citations_value {
-                if !citations_array.is_empty() {
-                    match tc.tool_name.as_str() {
-                        "web_search" => {
-                            let web_search_event = json!({
-                                "sources": citations_array,
-                                "tool_name": "web_search",
-                                "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                            });
-                            if let Err(e) = window
-                                .emit(&format!("{}_web_search", stream_event), &web_search_event)
-                            {
-                                error!("emit web_search event failed: {}", e);
-                            }
-                        }
-                        "rag" => {
-                            let rag_event = json!({
-                                "sources": citations_array,
-                                "tool_name": "rag",
-                                "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                            });
-                            if let Err(e) =
-                                window.emit(&format!("{}_rag_sources", stream_event), &rag_event)
-                            {
-                                error!("emit rag event failed: {}", e);
-                            }
-                        }
-                        "memory" => {
-                            let memory_event = json!({
-                                "sources": citations_array,
-                                "tool_name": "memory",
-                                "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                            });
-                            if let Err(e) = window
-                                .emit(&format!("{}_memory_sources", stream_event), &memory_event)
-                            {
-                                error!("emit memory event failed: {}", e);
-                            }
-                        }
-                        _ => {
-                            let mut web_sources = Vec::new();
-                            let mut rag_sources = Vec::new();
-                            let mut memory_sources = Vec::new();
-
-                            for citation in citations_array {
-                                if let Some(source_type) =
-                                    citation.get("source_type").and_then(|s| s.as_str())
-                                {
-                                    match source_type {
-                                        "search" => web_sources.push(citation.clone()),
-                                        "rag" => rag_sources.push(citation.clone()),
-                                        "memory" => memory_sources.push(citation.clone()),
-                                        _ => rag_sources.push(citation.clone()),
-                                    }
-                                } else {
-                                    rag_sources.push(citation.clone());
-                                }
-                            }
-
-                            if !web_sources.is_empty() {
-                                let web_search_event = json!({
-                                    "sources": web_sources,
-                                    "tool_name": tc.tool_name,
-                                    "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                                });
-                                if let Err(e) = window.emit(
-                                    &format!("{}_web_search", stream_event),
-                                    &web_search_event,
-                                ) {
-                                    error!("emit classified web_search event failed: {}", e);
-                                }
-                            }
-                            if !rag_sources.is_empty() {
-                                let rag_event = json!({
-                                    "sources": rag_sources,
-                                    "tool_name": tc.tool_name,
-                                    "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                                });
-                                if let Err(e) = window
-                                    .emit(&format!("{}_rag_sources", stream_event), &rag_event)
-                                {
-                                    error!("emit classified rag event failed: {}", e);
-                                }
-                            }
-                            if !memory_sources.is_empty() {
-                                let memory_event = json!({
-                                    "sources": memory_sources,
-                                    "tool_name": tc.tool_name,
-                                    "timestamp": chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                                });
-                                if let Err(e) = window.emit(
-                                    &format!("{}_memory_sources", stream_event),
-                                    &memory_event,
-                                ) {
-                                    error!("emit classified memory event failed: {}", e);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // (旧 emit_specialized_source_events 已删除: {stream_event}_web_search/_rag_sources/
+    //  _memory_sources 前端零监听且本函数零调用, RAG 引用数据实际经消息字段与块事件送达 — A11#2)
 
     // ==================== MCP Tools ====================
 

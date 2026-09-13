@@ -16,7 +16,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use tauri::{Emitter, State, Window};
+use tauri::{State, Window};
 use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, AppError>;
@@ -1302,16 +1302,12 @@ pub async fn notes_import(
         _ => crate::notes_exporter::ImportConflictStrategy::Skip,
     };
 
-    // 创建进度回调（发送事件到前端）
-    let window_clone = window.clone();
-    let progress_callback =
-        std::sync::Arc::new(move |progress: crate::notes_exporter::ImportProgress| {
-            let _ = window_clone.emit("notes-import-progress", &progress);
-        });
+    // A11#9: notes-import-progress 孤儿 emit 已删（前端零监听）——不再构造进度回调
+    let _ = &window;
 
     let options = crate::notes_exporter::ImportOptions {
         conflict_strategy,
-        progress_callback: Some(progress_callback),
+        progress_callback: None,
     };
 
     log::info!(

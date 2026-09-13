@@ -6,7 +6,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { dstu, pathUtils } from "@/dstu";
 import type { DstuNode } from "@/dstu/types";
 import { dstuNodeToNoteItem } from "@/dstu/adapters/notesDstuAdapter";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+// A11#14: canvas:note-updated 监听删除后,本文件不再需要 tauri event 导入
 import { useTranslation } from "react-i18next";
 import { showGlobalNotification } from "@/components/UnifiedNotification";
 import { useSystemStatusStore } from '@/stores/systemStatusStore';
@@ -573,34 +573,7 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     }, [active?.id]);
 
-    // 🔧 修复：监听后端 Canvas 工具更新事件
-    useEffect(() => {
-        let unlisten: UnlistenFn | null = null;
-        
-        const setupListener = async () => {
-            try {
-                unlisten = await listen<{ noteId: string; toolName: string }>('canvas:note-updated', (event) => {
-                    console.log('[Canvas] Received note-updated event from backend:', event.payload);
-                    const { noteId } = event.payload;
-                    if (noteId) {
-                        void forceRefreshNoteContent(noteId);
-                    }
-                });
-                console.log('[Canvas] Listening for canvas:note-updated events');
-            } catch (error) {
-                console.error('[Canvas] Failed to setup event listener:', error);
-            }
-        };
-        
-        void setupListener();
-        
-        return () => {
-            if (unlisten) {
-                unlisten();
-                console.log('[Canvas] Unlistening canvas:note-updated events');
-            }
-        };
-    }, [forceRefreshNoteContent]);
+    // A11#14: canvas:note-updated 悬空监听已删（全库无发射方,画布更新走 invoke）
 
     // 🔧 Canvas 笔记引用恢复：监听会话加载后的恢复事件（支持多笔记历史）
     useEffect(() => {

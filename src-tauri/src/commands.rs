@@ -900,20 +900,13 @@ pub async fn get_exam_sheet_session_detail(
 pub async fn update_exam_sheet_cards(
     request: UpdateExamSheetCardsRequest,
     state: State<'_, AppState>,
-    app_handle: AppHandle,
 ) -> Result<UpdateExamSheetCardsResponse> {
     let outcome = state
         .exam_sheet_service
         .update_exam_sheet_cards(request)
         .await?;
 
-    for mistake_id in &outcome.updated_mistake_ids {
-        app_handle.emit(
-            "mistake_status_update",
-            serde_json::json!({ "mistake_id": mistake_id }),
-        )
-        .map_err(|e| AppError::new(AppErrorType::Unknown, format!("emit failed: {}", e)))?;
-    }
+    // A11#6: mistake_status_update 循环逐 id emit 已删（前端零监听）
 
     Ok(UpdateExamSheetCardsResponse {
         detail: outcome.detail,
@@ -924,7 +917,6 @@ pub async fn update_exam_sheet_cards(
 pub async fn rename_exam_sheet_session(
     request: RenameExamSheetSessionRequest,
     state: State<'_, AppState>,
-    app_handle: AppHandle,
 ) -> Result<RenameExamSheetSessionResponse> {
     let outcome = state
         .exam_sheet_service
@@ -937,13 +929,7 @@ pub async fn rename_exam_sheet_session(
         })
         .await?;
 
-    for mistake_id in &outcome.updated_mistake_ids {
-        app_handle.emit(
-            "mistake_status_update",
-            serde_json::json!({ "mistake_id": mistake_id }),
-        )
-        .map_err(|e| AppError::new(AppErrorType::Unknown, format!("emit failed: {}", e)))?;
-    }
+    // A11#6: mistake_status_update 循环逐 id emit 已删（前端零监听）
 
     Ok(RenameExamSheetSessionResponse {
         summary: outcome.detail.summary.clone(),

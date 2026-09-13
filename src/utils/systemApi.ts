@@ -55,15 +55,7 @@ export async function generateMissingTagVectors(graphId: string = 'default'): Pr
   try {
     console.log('Starting batch generation of missing tag vectors...');
     const response = await invoke<{ success: boolean; message: string }>('unified_generate_missing_tag_vectors', { ...withGraphId(graphId) });
-    // 订阅进度事件
-    try {
-      const { listen } = await import('@tauri-apps/api/event');
-      const un = await listen<'any'>('tag_vector_status', (e: any) => {
-        const p = e?.payload || {};
-        console.log('Tag vector progress:', p);
-      });
-      // 调用方可存储 un 以便页面卸载时取消监听
-    } catch (_) {}
+    // A11#15: tag_vector_status 悬空监听已删（Rust 无发射方）
     console.log('Tag vector batch task started:', response);
     return response.message;
   } catch (error) {

@@ -47,6 +47,7 @@ pub mod lance_vector_store;
 pub mod llm_manager;
 pub mod llm_structurer;
 pub mod llm_usage; // LLM 使用量统计模块（独立 llm_usage.db）
+pub mod local_api; // 本地学习数据开放 API（127.0.0.1 只读 HTTP，docs/STUDY-DATA-API.md）
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod memory; // Memory-as-VFS 记忆系统（复用 VFS 基础设施）
@@ -602,6 +603,32 @@ pub fn run() {
             // 构建并注册全局 AppState（使用当前活动的数据空间目录）
             let state = build_app_state(active_app_data_dir.clone(), app_handle.clone());
             app.manage(state);
+
+            // 本地学习数据开放 API（local_api）：默认关闭；若用户已启用则随应用自启动
+            // 依赖 build_app_state 内部已注册的 Arc<VfsDatabase>
+            // 注意：api/ 目录（token/port）必须放在数据根目录（base_dir），而非活动 slot 目录——
+            // slotA/slotB 会随用户切换数据空间而变化，消费方按固定契约路径 %APPDATA%\com.lanxia.deepstudent\api\ 读取
+            {
+                let vfs_db = app
+                    .try_state::<std::sync::Arc<crate::vfs::VfsDatabase>>()
+                    .map(|s| s.inner().clone());
+                match vfs_db {
+                    Some(vfs_db) => {
+                        let manager = std::sync::Arc::new(
+                            crate::local_api::LocalApiManager::new(data_space.base_dir(), vfs_db),
+                        );
+                        if manager.is_enabled() {
+                            if let Err(e) = manager.start() {
+                                warn!("[LocalApi] 随应用启动失败: {}", e);
+                            }
+                        }
+                        app.manage(manager);
+                    }
+                    None => {
+                        warn!("[LocalApi] VfsDatabase 未注册，本地 API 不可用");
+                    }
+                }
+            }
 
 
             // 数据治理初始化失败时进入维护模式，阻断写入路径
@@ -1761,6 +1788,12 @@ pub fn run() {
             ,crate::cmd::research_stubs::research_set_setting
             ,crate::cmd::research_stubs::research_delete_setting
             ,crate::cmd::research_stubs::research_list_artifacts
+            // =================================================
+            // 本地学习数据开放 API（设置页开关/token 管理）
+            // =================================================
+            ,crate::local_api::local_api_get_status
+            ,crate::local_api::local_api_set_enabled
+            ,crate::local_api::local_api_regenerate_token
         ])
         // 注册 pdfstream:// 自定义协议，用于 PDF 流式加载（支持 HTTP Range Request）
         .register_uri_scheme_protocol("pdfstream", |ctx, request| {
@@ -2081,14 +2114,9 @@ async fn init_mcp_client(
             info!("🔧 [MCP] Global MCP client initialized successfully");
             // 注册 tools/list_changed 事件以清空工具缓存
             if let Some(client) = crate::mcp::get_global_mcp_client().await {
-                let app_handle_for_event = app_handle.clone();
-                client.on_event(move |event| {
-                    if let crate::mcp::McpEvent::ToolsChanged = event {
-                        log::info!("🔧 [MCP] tools/list_changed received → clearing LLMManager MCP tool cache");
-                        if let Some(handle) = &app_handle_for_event {
-                            let _ = handle.emit("mcp_tools_changed", &serde_json::json!({"ts": chrono::Utc::now().to_rfc3339()}));
-                        }
-                    }
+                client.on_event(move |_event| {
+                    // A11#10: mcp_tools_changed 孤儿 emit 已删（前端零监听，缓存清理在 MCP 客户端内部完成）
+                    log::debug!("[MCP] tools/list_changed received → MCP tool cache cleared internally");
                 }).await;
             }
             Ok(())

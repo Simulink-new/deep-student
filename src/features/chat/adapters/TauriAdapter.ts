@@ -18,7 +18,6 @@ import { getErrorMessage } from '@/utils/errorUtils';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import type { StoreApi } from 'zustand';
 import type { ChatStore, AttachmentMeta, LoadSessionResponseType } from '../core/types';
-import { streamingBlockSaver } from '../core/middleware/autoSave';
 import type { BackendEvent } from '../core/middleware/eventBridge';
 import {
   handleBackendEventWithSequence,
@@ -618,9 +617,7 @@ export class ChatV2TauriAdapter {
       this.store.setUpdateSessionSettingsCallback((settings) =>
         this.executeUpdateSessionSettings(settings)
       );
-      streamingBlockSaver.setSaveCallback((blockId, messageId, blockType, content, sessionId) =>
-        this.executeUpsertStreamingBlock(blockId, messageId, blockType, content, sessionId)
-      );
+      // A11/B3: streamingBlockSaver 回调接线已删（scheduleBlockSave 零调用,防闪退落盘在 Rust 侧）
 
       // 🔧 2026-01-15: 移除超时机制，后端工具调用参数累积时会实时发送事件
       // 超时机制已移除，避免长工具调用参数生成期间误杀
@@ -908,12 +905,7 @@ export class ChatV2TauriAdapter {
       console.error(LOG_PREFIX, 'Error clearing updateSessionSettings callback:', getErrorMessage(error));
     }
 
-    // 🔧 防闪退：清除流式块保存回调
-    try {
-      streamingBlockSaver.setSaveCallback(null);
-    } catch (error) {
-      console.error(LOG_PREFIX, 'Error clearing streamingBlockSaver callback:', getErrorMessage(error));
-    }
+    // 🔧 防闪退：streamingBlockSaver 清理已随单例删除移除
 
     for (const unlisten of this.unlisteners) {
       try {
@@ -3248,35 +3240,8 @@ export class ChatV2TauriAdapter {
     }
   }
 
-  /**
-   * 执行 UPSERT 流式块操作（内部方法，供防闪退保存使用）
-   * 用于流式过程中定期保存块内容到后端
-   */
-  private async executeUpsertStreamingBlock(
-    blockId: string,
-    messageId: string,
-    blockType: string,
-    content: string,
-    sessionId?: string
-  ): Promise<void> {
-    console.log(LOG_PREFIX, 'Executing upsert streaming block:', blockId, 'len:', content.length);
-
-    try {
-      await invoke('chat_v2_upsert_streaming_block', {
-        blockId,
-        messageId,
-        blockType,
-        content,
-        sessionId,
-      });
-
-      console.log(LOG_PREFIX, 'Streaming block upserted successfully:', blockId);
-    } catch (error) {
-      const errorMsg = getErrorMessage(error);
-      console.error(LOG_PREFIX, 'Upsert streaming block failed:', errorMsg);
-      // 不抛出错误，防闪退保存失败不应影响流式过程
-    }
-  }
+  // A11/B3: executeUpsertStreamingBlock 已删——唯一调用方是已删除的 streamingBlockSaver
+  // 回调接线(防闪退落盘由 Rust 侧 PeriodicBlockPersister 承担)
 
   // ========================================================================
   // 私有方法

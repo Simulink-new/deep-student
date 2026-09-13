@@ -14,7 +14,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::backup_common::ImportProgress;
 use crate::data_governance::{DataGovernanceError, DataGovernanceResult};
 
 // ============================================================================
@@ -691,9 +690,7 @@ impl BackupJobContext {
         self.manager.schedule_job_removal(&self.job_id);
     }
 
-    pub fn emit_legacy_progress(&self, progress: &ImportProgress) {
-        self.manager.emit_legacy_progress(progress);
-    }
+    // A11#8: emit_legacy_progress(backup-import-progress) 已删——前端零监听,job 化 backup-job-progress 已取代
 
     // ========================================================================
     // 检查点支持方法
@@ -982,12 +979,6 @@ impl BackupJobManager {
             .emit("backup-job-progress", snapshot.clone())
         {
             warn!("[BackupJob] 任务事件广播失败: {}", err);
-        }
-    }
-
-    pub fn emit_legacy_progress(&self, progress: &ImportProgress) {
-        if let Err(err) = self.app_handle.emit("backup-import-progress", progress) {
-            warn!("[BackupJob] legacy progress emit failed: {}", err);
         }
     }
 
