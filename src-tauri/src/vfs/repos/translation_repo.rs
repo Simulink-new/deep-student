@@ -68,7 +68,7 @@ impl VfsTranslationRepo {
             r#"
             SELECT t.id, t.resource_id, t.title, t.src_lang, t.tgt_lang, t.engine, t.model,
                    t.is_favorite, t.quality_rating, t.created_at, t.updated_at, t.metadata_json,
-                   r.data as content_json
+                   NULL as content_json
             FROM translations t
             LEFT JOIN resources r ON t.resource_id = r.id
             WHERE 1=1
@@ -671,7 +671,7 @@ impl VfsTranslationRepo {
         let sql = r#"
             SELECT t.id, t.resource_id, t.title, t.src_lang, t.tgt_lang, t.engine, t.model,
                    t.is_favorite, t.quality_rating, t.created_at, t.updated_at, t.metadata_json,
-                   r.data as content_json
+                   NULL as content_json
             FROM translations t
             LEFT JOIN resources r ON t.resource_id = r.id
             WHERE t.deleted_at IS NOT NULL
@@ -921,7 +921,7 @@ impl VfsTranslationRepo {
         let sql = r#"
             SELECT t.id, t.resource_id, t.title, t.src_lang, t.tgt_lang, t.engine, t.model,
                    t.is_favorite, t.quality_rating, t.created_at, t.updated_at, t.metadata_json,
-                   r.data as content_json
+                   NULL as content_json
             FROM translations t
             LEFT JOIN resources r ON t.resource_id = r.id
             JOIN folder_items fi ON fi.item_type = 'translation' AND fi.item_id = t.id

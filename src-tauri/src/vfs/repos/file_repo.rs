@@ -567,7 +567,7 @@ impl VfsFileRepo {
             r#"
             SELECT id, resource_id, blob_hash, sha256, file_name, original_path, size, page_count,
                    "type", mime_type, tags_json, is_favorite, last_opened_at, last_page, bookmarks_json,
-                   cover_key, extracted_text, preview_json, ocr_pages_json, description,
+                   cover_key, NULL AS extracted_text, NULL AS preview_json, NULL AS ocr_pages_json, description,
                    status, created_at, updated_at, deleted_at,
                    processing_status, processing_progress, processing_error,
                    processing_started_at, processing_completed_at,
@@ -602,7 +602,7 @@ impl VfsFileRepo {
             r#"
             SELECT id, resource_id, blob_hash, sha256, file_name, original_path, size, page_count,
                    "type", mime_type, tags_json, is_favorite, last_opened_at, last_page, bookmarks_json,
-                   cover_key, extracted_text, preview_json, ocr_pages_json, description,
+                   cover_key, NULL AS extracted_text, NULL AS preview_json, NULL AS ocr_pages_json, description,
                    status, created_at, updated_at, deleted_at,
                    processing_status, processing_progress, processing_error,
                    processing_started_at, processing_completed_at,
@@ -638,7 +638,7 @@ impl VfsFileRepo {
         let sql = r#"
             SELECT f.id, f.resource_id, f.blob_hash, f.sha256, f.file_name, f.original_path, f.size, f.page_count,
                    f."type", f.mime_type, f.tags_json, f.is_favorite, f.last_opened_at, f.last_page, f.bookmarks_json,
-                   f.cover_key, f.extracted_text, f.preview_json, f.ocr_pages_json, f.description,
+                   f.cover_key, NULL AS extracted_text, NULL AS preview_json, NULL AS ocr_pages_json, f.description,
                    f.status, f.created_at, f.updated_at, f.deleted_at,
                    f.processing_status, f.processing_progress, f.processing_error,
                    f.processing_started_at, f.processing_completed_at,
@@ -682,7 +682,7 @@ impl VfsFileRepo {
             r#"
             SELECT id, resource_id, blob_hash, sha256, file_name, original_path, size, page_count,
                    "type", mime_type, tags_json, is_favorite, last_opened_at, last_page, bookmarks_json,
-                   cover_key, extracted_text, preview_json, ocr_pages_json, description,
+                   cover_key, NULL AS extracted_text, NULL AS preview_json, NULL AS ocr_pages_json, description,
                    status, created_at, updated_at, deleted_at,
                    processing_status, processing_progress, processing_error,
                    processing_started_at, processing_completed_at,
@@ -1126,7 +1126,7 @@ impl VfsFileRepo {
         let sql = r#"
             SELECT id, resource_id, blob_hash, sha256, file_name, original_path, size, page_count,
                    "type", mime_type, tags_json, is_favorite, last_opened_at, last_page, bookmarks_json,
-                   cover_key, extracted_text, preview_json, ocr_pages_json, description,
+                   cover_key, NULL AS extracted_text, NULL AS preview_json, NULL AS ocr_pages_json, description,
                    status, created_at, updated_at, deleted_at,
                    processing_status, processing_progress, processing_error,
                    processing_started_at, processing_completed_at,

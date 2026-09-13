@@ -1489,7 +1489,7 @@ impl VfsAttachmentRepo {
                 r#"
                 SELECT id, resource_id, blob_hash, type, name, mime_type, size,
                        content_hash, is_favorite, created_at, updated_at,
-                       preview_json, extracted_text, page_count, deleted_at
+                       NULL AS preview_json, NULL AS extracted_text, page_count, deleted_at
                 FROM files
                 WHERE type = ?1 AND deleted_at IS NULL
                 ORDER BY updated_at DESC
@@ -1506,7 +1506,7 @@ impl VfsAttachmentRepo {
                 r#"
                 SELECT id, resource_id, blob_hash, type, name, mime_type, size,
                        content_hash, is_favorite, created_at, updated_at,
-                       preview_json, extracted_text, page_count, deleted_at
+                       NULL AS preview_json, NULL AS extracted_text, page_count, deleted_at
                 FROM files
                 WHERE deleted_at IS NULL
                 ORDER BY updated_at DESC
@@ -2348,7 +2348,7 @@ impl VfsAttachmentRepo {
             r#"
             SELECT id, resource_id, blob_hash, type, name, mime_type, size,
                    content_hash, is_favorite, created_at, updated_at,
-                   preview_json, extracted_text, page_count, deleted_at
+                   NULL AS preview_json, NULL AS extracted_text, page_count, deleted_at
             FROM files
             WHERE deleted_at IS NOT NULL
             ORDER BY deleted_at DESC
