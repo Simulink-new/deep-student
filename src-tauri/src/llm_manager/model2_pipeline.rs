@@ -664,26 +664,26 @@ pub(crate) fn log_and_emit_llm_request(
     body: &serde_json::Value,
     persist_config: Option<&DebugPersistConfig>,
 ) {
+    // debug.persist_logs 开关同时作为回声/全量日志的门（A11#1/#22 + A6#2 sanitize 门控）:
+    // 默认关闭——sanitize 深拷贝/pretty 序列化/IPC 回声全部跳过
+    let debug_on = persist_config.is_some();
+    if !debug_on {
+        info!("[LLM_AUDIT:{}] model={} url={}", tag, model, url);
+        return;
+    }
+
     let sanitized = sanitize_request_body_for_audit(body);
 
-    // debug.persist_logs 开关同时作为回声/全量日志的门（A11#1/#22）:
-    // 默认关闭——不再每轮 O(prompt) 全量 pretty 序列化与 IPC 回声
-    let debug_on = persist_config.is_some();
-
-    // 1. 审计日志: debug 开启时全量 pretty; 否则单行摘要(零序列化开销)
-    if debug_on {
-        match serde_json::to_string_pretty(&sanitized) {
-            Ok(pretty) => info!(
-                "[LLM_AUDIT:{}] model={} url={}\n{}",
-                tag, model, url, pretty
-            ),
-            Err(e) => warn!(
-                "[LLM_AUDIT:{}] model={} url={} (序列化失败: {})",
-                tag, model, url, e
-            ),
-        }
-    } else {
-        info!("[LLM_AUDIT:{}] model={} url={}", tag, model, url);
+    // 1. 审计日志: debug 开启时全量 pretty
+    match serde_json::to_string_pretty(&sanitized) {
+        Ok(pretty) => info!(
+            "[LLM_AUDIT:{}] model={} url={}\n{}",
+            tag, model, url, pretty
+        ),
+        Err(e) => warn!(
+            "[LLM_AUDIT:{}] model={} url={} (序列化失败: {})",
+            tag, model, url, e
+        ),
     }
 
     // 2. 文件持久化（脱敏请求体，避免 transient skill instructions 落盘）
@@ -700,14 +700,9 @@ pub(crate) fn log_and_emit_llm_request(
         })
         .map(|p| p.to_string_lossy().to_string());
 
-    // 3. 推送给前端（仅 Chat V2 流，且仅 debug.persist_logs 开启时——A11#1:
-    //    全量脱敏请求体每轮回声 + 前端 rawRequests 无界累积,长会话 MB 级浪费;
-    //    磁盘副本已由 logFilePath 提供,默认不回声）
+    // 3. 推送给前端（仅 Chat V2 流——A11#1: 磁盘副本已由 logFilePath 提供,默认不回声）
     let prefix = "chat_v2_event_";
     if !stream_event.starts_with(prefix) {
-        return;
-    }
-    if !debug_on {
         return;
     }
 
@@ -1260,22 +1255,8 @@ impl LLMManager {
             Self::merge_consecutive_user_messages(&mut messages);
         }
 
-        // 近似输入token统计（用于用量/事件）
-        let _approx_tokens_in = {
-            let mut s = 0usize;
-            // 使用 system_content 估算系统提示的 token 数量
-            s += crate::utils::token_budget::estimate_tokens(&system_content);
-            if !context.is_empty() {
-                for (k, v) in context {
-                    let _ = k;
-                    s += crate::utils::token_budget::estimate_tokens(&v.to_string());
-                }
-            }
-            for m in &chat_history {
-                s += crate::utils::token_budget::estimate_tokens(&m.content);
-            }
-            s
-        };
+        // A6#10: _approx_tokens_in 死计算块已删——结果从未被消费(带下划线),
+        // 且遍历含 context 每值 to_string 序列化 + 全历史, 每请求纯浪费
 
         let mut request_body = json!({
             "model": config.model,
@@ -1602,17 +1583,17 @@ impl LLMManager {
         }
 
         // 输出脱敏请求体用于调试（隐藏图片与 transient skill instructions）
-        let debug_body = sanitize_request_body_for_audit(&request_body);
-        debug!("[LLM_REVIEW_DEBUG] ==> 脱敏请求体开始 <==");
-        debug!(
-            "{}",
-            serde_json::to_string_pretty(&debug_body).unwrap_or_default()
-        );
-        debug!("[LLM_REVIEW_DEBUG] ==> 脱敏请求体结束 <==");
+        // ★ A6#2: sanitize 深拷贝+pretty 序列化仅在 debug 日志级别开启时执行(旧实现每请求无条件全量)
+        if log::log_enabled!(log::Level::Debug) {
+            let debug_body = sanitize_request_body_for_audit(&request_body);
+            debug!("[LLM_REVIEW_DEBUG] ==> 脱敏请求体开始 <==");
+            debug!(
+                "{}",
+                serde_json::to_string_pretty(&debug_body).unwrap_or_default()
+            );
+            debug!("[LLM_REVIEW_DEBUG] ==> 脱敏请求体结束 <==");
+        }
 
-        // 记录请求体大小与起始时间（简化）
-        let request_json_str = serde_json::to_string(&request_body).unwrap_or_default();
-        let request_bytes = request_json_str.len();
         let start_instant = std::time::Instant::now();
 
         // Provider 适配：构建请求
@@ -1625,6 +1606,11 @@ impl LLMManager {
                 &request_body,
             )
             .map_err(|e| Self::provider_error("对话请求构建失败", e))?;
+
+        // ★ A6#2: 单次序列化——同一份 JSON 串同时用于字节统计与 HTTP body
+        // (旧: to_string(request_body) 测长即弃 + 每次重试 .json(&preq.body) 重新序列化)
+        let request_body_json = serde_json::to_string(&preq.body).unwrap_or_default();
+        let request_bytes = request_body_json.len();
 
         // ★ 使用 preq.body（适配器转换后的实际请求体）而非 request_body（转换前），
         // 确保 Anthropic/Gemini 等非 OpenAI 提供商的预览与实际发送内容一致
@@ -1688,7 +1674,9 @@ impl LLMManager {
             );
 
             let resp = request_builder
-                .json(&preq.body)
+                // A6#2: 复用单次序列化结果作为 body(重试各 attempt 不再重复 .json() 序列化)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(request_body_json.clone())
                 .send()
                 .await
                 .map_err(|e| AppError::network(format!("{}: 网络请求失败: {}", api_label, e)))?;
@@ -2876,19 +2864,19 @@ impl LLMManager {
 
         apply_generation_params(&mut request_body, &config);
 
-        // 记录请求体大小与起始时间
-        let request_json_str = serde_json::to_string(&request_body).unwrap_or_default();
-        let request_bytes = request_json_str.len();
         let start_instant = std::time::Instant::now();
 
         // 输出脱敏请求体用于调试
-        let debug_body = sanitize_request_body_for_audit(&request_body);
-        debug!("[LLM_CONTINUE_DEBUG] ==> 脱敏请求体开始 <==");
-        debug!(
-            "{}",
-            serde_json::to_string_pretty(&debug_body).unwrap_or_default()
-        );
-        debug!("[LLM_CONTINUE_DEBUG] ==> 脱敏请求体结束 <==");
+        // ★ A6#2: sanitize 深拷贝+pretty 仅在 debug 级别开启时执行
+        if log::log_enabled!(log::Level::Debug) {
+            let debug_body = sanitize_request_body_for_audit(&request_body);
+            debug!("[LLM_CONTINUE_DEBUG] ==> 脱敏请求体开始 <==");
+            debug!(
+                "{}",
+                serde_json::to_string_pretty(&debug_body).unwrap_or_default()
+            );
+            debug!("[LLM_CONTINUE_DEBUG] ==> 脱敏请求体结束 <==");
+        }
 
         debug!("发送请求到: {}", config.base_url);
         // 使用 ProviderAdapter 统一构建请求（避免覆盖分支硬编码/chat/completions）
@@ -2901,6 +2889,10 @@ impl LLMManager {
                 &request_body,
             )
             .map_err(|e| Self::provider_error("续写请求构建失败", e))?;
+
+        // ★ A6#2: 单次序列化——字节统计与 HTTP body 共用一份
+        let request_body_json = serde_json::to_string(&preq.body).unwrap_or_default();
+        let request_bytes = request_body_json.len();
 
         // ★ 同主路径：使用适配器转换后的实际请求体
         let debug_persist = self.build_debug_persist_config();
@@ -2957,7 +2949,9 @@ impl LLMManager {
         // A11#2: _start 孤儿emit已删(前端零监听)
 
         let response = request_builder
-            .json(&preq.body)
+            // A6#2: 复用单次序列化结果作为 body
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(request_body_json)
             .send()
             .await
             .map_err(|e| AppError::network(format!("请求失败: {}", e)))?;

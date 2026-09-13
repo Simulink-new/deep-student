@@ -54,6 +54,10 @@ pub struct LLMManager {
     mcp_tool_cache: Arc<RwLock<Option<config_types::McpToolCache>>>,
     hooks_registry:
         Arc<TokioMutex<std::collections::HashMap<String, std::sync::Arc<dyn LLMStreamHooks>>>>,
+    /// ★ perf-audit A6#1: get_api_configs 结果缓存——全模块 20 个调用点原本每请求
+    /// (含工具循环每 turn) 6-8 次 settings 读 + 3-5 次全量 JSON 解析; 写路径主动失效 + 60s TTL 兜底
+    api_configs_cache:
+        Arc<TokioMutex<Option<(std::time::Instant, Arc<Vec<ApiConfig>>)>>>,
 }
 
 // ==================== Core impl ====================
@@ -75,6 +79,7 @@ impl LLMManager {
             cancel_channels: Arc::new(TokioMutex::new(std::collections::HashMap::new())),
             mcp_tool_cache: Arc::new(RwLock::new(None)),
             hooks_registry: Arc::new(TokioMutex::new(std::collections::HashMap::new())),
+            api_configs_cache: Arc::new(TokioMutex::new(None)),
         })
     }
 

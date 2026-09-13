@@ -638,12 +638,22 @@ impl super::LLMManager {
         self.db
             .save_setting("model_profiles", &json)
             .map_err(|e| AppError::database(format!("保存模型条目失败: {}", e)))?;
+        self.invalidate_api_configs_cache().await; // A6#1: 配置写入失效缓存
         Ok(())
     }
 
     // ==================== Config resolution ====================
 
     pub async fn get_api_configs(&self) -> Result<Vec<ApiConfig>> {
+        // ★ perf-audit A6#1: 读缓存(60s TTL, 写路径主动失效)——20 个调用点原本每请求
+        // 重复 bootstrap/repair/runtime 三轮 settings 读与全量 JSON 解析
+        const API_CONFIGS_TTL_SECS: u64 = 60;
+        if let Some((at, cached)) = self.api_configs_cache.lock().await.as_ref() {
+            if at.elapsed().as_secs() < API_CONFIGS_TTL_SECS {
+                return Ok(cached.as_ref().clone());
+            }
+        }
+
         self.bootstrap_vendor_model_config().await?;
         let vendors = self.vendor_configs_for_runtime().await?;
         let profiles = self.model_profiles_for_runtime().await?;
@@ -660,7 +670,14 @@ impl super::LLMManager {
             }
         }
 
+        *self.api_configs_cache.lock().await =
+            Some((std::time::Instant::now(), std::sync::Arc::new(resolved.clone())));
         Ok(resolved)
+    }
+
+    /// 配置写入后失效 get_api_configs 缓存(A6#1)
+    pub(crate) async fn invalidate_api_configs_cache(&self) {
+        *self.api_configs_cache.lock().await = None;
     }
 
     // ==================== Model selection/assignment ====================
@@ -874,6 +891,7 @@ impl super::LLMManager {
         self.db
             .save_setting("model_assignments", &assignments_str)
             .map_err(|e| AppError::database(format!("保存模型分配配置失败: {}", e)))?;
+        self.invalidate_api_configs_cache().await; // A6#1: 配置写入失效缓存
 
         Ok(())
     }

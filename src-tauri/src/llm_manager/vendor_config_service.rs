@@ -319,6 +319,7 @@ impl super::LLMManager {
         self.db
             .save_setting("vendor_configs", &json)
             .map_err(|e| AppError::database(format!("保存供应商配置失败: {}", e)))?;
+        self.invalidate_api_configs_cache().await; // A6#1: 配置写入失效缓存
         Ok(())
     }
 
