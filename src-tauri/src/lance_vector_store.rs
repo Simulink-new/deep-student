@@ -159,10 +159,8 @@ pub struct LanceVectorStore {
     dim: Option<usize>,
     #[cfg(feature = "lance")]
     db: Option<Connection>,
-    // 内存向量缓存：chunk_id -> (embedding, document_id, sub_library_id)
-    emb_cache: dashmap::DashMap<String, (Vec<f32>, String, Option<String>)>,
-    // 简单容量上限，避免内存膨胀（非严格LRU，超限时近似清理）
-    cache_cap: usize,
+    // A3#1: emb_cache 写-only 内存缓存已删——检索路径从不读取,启动预热 100K 向量
+    // 纯浪费 ~400MB RSS + 500MB 磁盘读(且 5 处 new() 各触发一次)
 }
 
 #[cfg(feature = "lance")]
@@ -427,31 +425,13 @@ impl LanceVectorStore {
             dim: None,
             #[cfg(feature = "lance")]
             db: None,
-            emb_cache: dashmap::DashMap::new(),
-            cache_cap: 100_000,
         };
         // 先确保基础 RAG 表结构（SQLite 端）存在
         store.ensure_base_rag_schema()?;
-        // 冷启动预热：后台扫描 Lance 表，尽可能灌入内存缓存（最佳努力，不影响主流程）
-        store.spawn_warmup_scan();
         Ok(store)
     }
 
-    // 缓存指标（供完整性校验）
-    pub fn cache_size(&self) -> usize {
-        self.emb_cache.len()
-    }
-
-    pub fn sample_cache(&self, n: usize) -> Vec<(String, usize, bool, Option<String>)> {
-        let mut out = Vec::new();
-        for entry in self.emb_cache.iter().take(n) {
-            let (emb, _doc, sub) = entry.value();
-            let dim = emb.len();
-            let finite = emb.iter().all(|v| v.is_finite());
-            out.push((entry.key().clone(), dim, finite, sub.clone()));
-        }
-        out
-    }
+    // A3#1: cache_size/sample_cache 随写-only emb_cache 删除（零外部调用）
 
     #[cfg(feature = "lance")]
     pub fn count_lance_rows_sync(&self) -> Option<usize> {
@@ -492,125 +472,12 @@ impl LanceVectorStore {
         }
     }
 
-    #[cfg(feature = "lance")]
-    fn cache_maybe_trim(&self) {
-        let len = self.emb_cache.len();
-        if len > self.cache_cap {
-            let mut removed = 0usize;
-            for k in self
-                .emb_cache
-                .iter()
-                .map(|e| e.key().clone())
-                .take(len / 10)
-            {
-                let _ = self.emb_cache.remove(&k);
-                removed += 1;
-                if self.emb_cache.len() <= self.cache_cap {
-                    break;
-                }
-            }
-            warn!("⚠️ [LanceCache] 缓存超限，已近似清理 {} 条", removed);
-        }
-    }
+    // A3#1: cache_maybe_trim 随 emb_cache 删除（本就零调用）
 
     #[cfg(feature = "lance")]
-    fn spawn_warmup_scan(&self) {
-        use futures_util::TryStreamExt;
-        let _this = self.database.clone();
-        let base = match self.get_lance_path() {
-            Ok(path) => path,
-            Err(err) => {
-                error!("⚠️ [Lance预热] 无法获取目录: {}", err);
-                return;
-            }
-        };
-        let cache = self.emb_cache.clone();
-        let cap = self.cache_cap;
-        tauri::async_runtime::spawn(async move {
-            if cap == 0 {
-                return;
-            }
-            // 尝试连接 Lance 并扫描所有候选表（最佳努力）
-            let db = match lancedb::connect(&base).execute().await {
-                Ok(db) => db,
-                Err(_) => return,
-            };
-            let mut any_dim: Option<usize> = None;
-            'table_loop: for name in Self::candidate_kb_table_names_for_scan() {
-                let tbl = match db.open_table(&name).execute().await {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-                let mut stream = match tbl.query().execute().await {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                while let Ok(Some(batch)) = stream.try_next().await {
-                    let schema = batch.schema();
-                    if let Ok(idx_emb) = schema.index_of("embedding") {
-                        if let Some(list) = batch
-                            .column(idx_emb)
-                            .as_any()
-                            .downcast_ref::<FixedSizeListArray>()
-                        {
-                            let width = list.value_length() as usize;
-                            if any_dim.is_none() {
-                                any_dim = Some(width);
-                            }
-                            let idx_id = match schema.index_of("chunk_id") {
-                                Ok(i) => i,
-                                Err(_) => break,
-                            };
-                            let id_arr =
-                                match batch.column(idx_id).as_any().downcast_ref::<StringArray>() {
-                                    Some(a) => a,
-                                    None => break,
-                                };
-                            let sub_arr_opt =
-                                schema.index_of("sub_library_id").ok().and_then(|i| {
-                                    batch.column(i).as_any().downcast_ref::<StringArray>()
-                                });
-                            for i in 0..list.len() {
-                                let values = list.value(i);
-                                let fvals = values.as_any().downcast_ref::<Float32Array>();
-                                if let Some(vec32) = fvals {
-                                    let mut v = Vec::with_capacity(width);
-                                    for j in 0..width {
-                                        v.push(vec32.value(j));
-                                    }
-                                    let chunk_id = id_arr.value(i).to_string();
-                                    let sub = sub_arr_opt.map(|a| a.value(i).to_string());
-                                    cache.insert(chunk_id, (v, String::new(), sub));
-                                    if cache.len() >= cap {
-                                        break 'table_loop;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some(d) = any_dim {
-                // 静默预热，避免日志风暴
-                let _ = (d, cache.len());
-            }
-        });
-    }
+    
 
-    fn enforce_cache_cap(&self) {
-        let len = self.emb_cache.len();
-        if len > self.cache_cap {
-            let mut removed = 0usize;
-            for entry in self.emb_cache.iter() {
-                if removed >= (len - self.cache_cap).min(10_000) {
-                    break;
-                }
-                let k = entry.key().clone();
-                self.emb_cache.remove(&k);
-                removed += 1;
-            }
-        }
-    }
+    
 
     #[cfg(feature = "lance")]
     fn get_lance_path(&self) -> Result<String> {
@@ -2785,11 +2652,6 @@ impl VectorStore for LanceVectorStore {
                 } = chunk;
 
                 let sub = sublib_map.get(&document_id).cloned().unwrap_or(None);
-                self.emb_cache.insert(
-                    id.clone(),
-                    (embedding.clone(), document_id.clone(), sub.clone()),
-                );
-                self.enforce_cache_cap();
 
                 let metadata_json = if metadata.is_empty() {
                     None
@@ -3027,7 +2889,7 @@ impl VectorStore for LanceVectorStore {
             }
 
             for cid in chunk_ids {
-                let _ = self.emb_cache.remove(&cid);
+                let _ = cid; // A3#1: emb_cache 维护已随缓存删除
             }
             Ok(())
         }
@@ -3158,8 +3020,7 @@ impl VectorStore for LanceVectorStore {
             }
         }
 
-        // 清空内存向量缓存
-        self.emb_cache.clear();
+        // A3#1: emb_cache.clear() 已随缓存删除
         Ok(())
     }
 

@@ -19,12 +19,9 @@ pub mod types;
 pub mod embedding_chunker;
 pub mod embedding_service;
 
-// 页面索引器（VFS 多模态服务依赖）
-pub mod page_indexer;
+// A9#5: page_indexer 模块已删(1,760 行死代码,仅 AttachmentPreview 类型被 VFS 引用,已迁 types.rs)
 
-// ★ 以下模块仍需保留（内部依赖）
-pub mod reranker_service;
-pub mod vector_store; // page_indexer 依赖 // llm_manager 依赖
+// A9#5: reranker_service(307 行)与 vector_store(973 行)已删——唯一依赖方 retriever.rs 未编译,llm_manager 实无引用
 
 // 重新导出常用类型
 pub use types::{
@@ -46,5 +43,4 @@ pub use types::{
 // 嵌入服务导出
 pub use embedding_service::{EmbeddingServiceConfig, MultimodalEmbeddingService};
 
-// 页面索引器导出（VFS 需要 AttachmentPreview）
-pub use page_indexer::{AttachmentPreview, PageIndexer};
+pub use types::AttachmentPreview; // A9#5: 迁至 types 后的 re-export

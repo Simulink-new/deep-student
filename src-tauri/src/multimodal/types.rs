@@ -1026,3 +1026,42 @@ mod tests {
         );
     }
 }
+
+/// PDF 附件/教材预览结构（自 page_indexer.rs 迁入, A9#5 死代码清理）
+///
+/// 支持两种命名格式：
+/// - snake_case: dpi, page_count（旧格式）
+/// - camelCase: renderDpi, totalPages（PdfPreviewJson 使用）
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AttachmentPreview {
+    pub pages: Vec<AttachmentPreviewPage>,
+    #[serde(default, alias = "renderDpi")]
+    pub dpi: Option<u32>,
+    #[serde(default, alias = "totalPages")]
+    pub page_count: Option<usize>,
+    #[serde(default, alias = "renderedAt")]
+    pub rendered_at: Option<String>,
+}
+
+/// PDF 附件/教材的单页预览数据
+///
+/// 支持两种命名格式：
+/// - snake_case: page_index, blob_hash, mime_type（旧格式）
+/// - camelCase: pageIndex, blobHash, mimeType（PdfPagePreview 使用）
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AttachmentPreviewPage {
+    #[serde(alias = "pageIndex")]
+    pub page_index: usize,
+    #[serde(alias = "blobHash")]
+    pub blob_hash: Option<String>,
+    #[serde(default, alias = "width")]
+    pub width: Option<u32>,
+    #[serde(default, alias = "height")]
+    pub height: Option<u32>,
+    #[serde(default, alias = "mimeType")]
+    pub mime_type: Option<String>,
+}
+
+/// 教材预览结构（与 PDF 附件类似）
+pub type TextbookPreview = AttachmentPreview;
+pub type TextbookPreviewPage = AttachmentPreviewPage;

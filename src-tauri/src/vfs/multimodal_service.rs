@@ -21,7 +21,7 @@ use tracing::{info, warn};
 use crate::database::Database;
 use crate::llm_manager::LLMManager;
 use crate::multimodal::embedding_service::MultimodalEmbeddingService;
-use crate::multimodal::page_indexer::AttachmentPreview;
+use crate::multimodal::types::AttachmentPreview; // A9#5: 自 page_indexer 迁入
 use crate::multimodal::types::{IndexProgressEvent, MultimodalInput};
 use crate::vfs::database::VfsDatabase;
 use crate::vfs::error::{VfsError, VfsResult};
