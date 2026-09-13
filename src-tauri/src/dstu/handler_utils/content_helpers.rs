@@ -186,9 +186,24 @@ pub fn get_content_by_type(
                 .unwrap_or_else(|| "document.pdf".to_string());
 
             // 获取 base64 内容（用于 DocumentParser 回退）
-            let base64_content = VfsFileRepo::get_content(vfs_db, &resolved_file_id)
-                .ok()
-                .flatten();
+            // ★ perf-audit A7-D2 惰性加载: 策略函数只有在 extracted_text 缺失或 < 1000 字符时
+            // 才会消费 base64(与 extract_file_text_with_strategy 内 TEXT_THRESHOLD 一致);
+            // OCR/extracted 命中时旧实现仍全量读盘+base64 编码 50MB blob 后丢弃——先廉价预检再按需加载
+            let needs_base64_fallback =
+                crate::vfs::ref_handlers::get_extracted_text_with_conn(&conn, &resolved_file_id)
+                    .map(|t| t.len() < 1000)
+                    .unwrap_or(true);
+            let base64_content = if needs_base64_fallback {
+                VfsFileRepo::get_content(vfs_db, &resolved_file_id)
+                    .ok()
+                    .flatten()
+            } else {
+                log::debug!(
+                    "[DSTU::content_helpers] skip base64 preload (extracted_text sufficient), id={}",
+                    resolved_file_id
+                );
+                None
+            };
 
             // 使用统一文本抽取函数（与 ref_handlers.rs 完全一致）
             let text = extract_file_text_with_strategy(

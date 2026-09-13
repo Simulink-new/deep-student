@@ -208,8 +208,12 @@ async fn get_blob_base64(
         .map_err(|e| format!("获取 blob 路径失败: {}", e))?
         .ok_or_else(|| format!("Blob 文件路径不存在: {}", blob_hash))?;
 
-    // 读取文件内容
-    let file_data = std::fs::read(&blob_path).map_err(|e| format!("读取 blob 文件失败: {}", e))?;
+    // 读取文件内容（★ perf-audit A7-D3a: async 上下文内的阻塞盘读包 spawn_blocking,
+    // 多页题目集逐页读取时不再占死 tokio worker）
+    let file_data = tauri::async_runtime::spawn_blocking(move || std::fs::read(&blob_path))
+        .await
+        .map_err(|e| format!("读取 blob 文件任务失败: {}", e))?
+        .map_err(|e| format!("读取 blob 文件失败: {}", e))?;
 
     // 转换为 base64
     let base64_data = BASE64.encode(&file_data);
