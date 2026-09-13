@@ -427,6 +427,9 @@ pub struct PdfProcessingService {
     /// 运行中的任务追踪：file_id -> (CancellationToken, generation)
     /// ★ P0 修复：增加 generation 标识，避免 cancel+restart 竞态条件
     running_tasks: DashMap<String, (CancellationToken, u64)>,
+    /// ★ perf-audit A4#3: 进度持久化节流状态 file_id -> (stage, percent桶, ready_modes签名, 上次写入)
+    /// 旧实现每 tick 全量 UPDATE——300 页 ≈600 次 DB 写;现仅在阶段/模式变化或 ≥2s 时落盘
+    progress_persist_state: DashMap<String, (String, u32, String, std::time::Instant)>,
     /// 任务 generation 计数器（单调递增，用于区分同 file_id 的不同任务）
     generation_counter: AtomicU64,
     /// App Handle（用于发送事件）
@@ -456,6 +459,7 @@ impl PdfProcessingService {
             llm_manager,
             file_manager,
             running_tasks: DashMap::new(),
+            progress_persist_state: DashMap::new(),
             generation_counter: AtomicU64::new(0),
             app_handle: RwLock::new(None),
             vector_index_callback: None,
@@ -2935,7 +2939,27 @@ impl PdfProcessingService {
         }
 
         // 兼容轮询链路：将最新进度持久化到 DB，避免前端只能在 completed 才看到 ready_modes 变化。
-        if let Ok(conn) = self.db.get_conn_safe() {
+        // ★ A4#3 节流: 仅在 阶段变化 / ready_modes 变化 / percent 跨 10% 桶 / 距上次 ≥2s 时写
+        // (轮询消费者语义保留: ready_modes 与阶段切换总能及时落盘)
+        let percent_bucket = (progress.percent as u32) / 10;
+        let ready_modes_sig = progress
+            .ready_modes
+            .iter()
+            .map(|m| m.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let should_persist = match self.progress_persist_state.get(file_id) {
+            Some(state) => {
+                let (prev_stage, prev_bucket, prev_modes, at) = state.value();
+                prev_stage != &progress.stage
+                    || *prev_bucket != percent_bucket
+                    || prev_modes != &ready_modes_sig
+                    || at.elapsed().as_secs() >= 2
+            }
+            None => true,
+        };
+        if should_persist {
+            if let Ok(conn) = self.db.get_conn_safe() {
             let progress_json = serde_json::to_string(&progress).unwrap_or_default();
             if let Err(e) = conn.execute(
                 r#"
@@ -2952,6 +2976,16 @@ impl PdfProcessingService {
                     file_id, e
                 );
             }
+            }
+            self.progress_persist_state.insert(
+                file_id.to_string(),
+                (
+                    progress.stage.clone(),
+                    percent_bucket,
+                    ready_modes_sig,
+                    std::time::Instant::now(),
+                ),
+            );
         }
 
         if let Some(app_handle) = self.get_app_handle().await {
