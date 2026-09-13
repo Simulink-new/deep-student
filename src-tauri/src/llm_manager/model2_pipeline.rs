@@ -666,16 +666,24 @@ pub(crate) fn log_and_emit_llm_request(
 ) {
     let sanitized = sanitize_request_body_for_audit(body);
 
-    // 1. 审计日志（始终 standard 级别，避免泄漏 base64）
-    match serde_json::to_string_pretty(&sanitized) {
-        Ok(pretty) => info!(
-            "[LLM_AUDIT:{}] model={} url={}\n{}",
-            tag, model, url, pretty
-        ),
-        Err(e) => warn!(
-            "[LLM_AUDIT:{}] model={} url={} (序列化失败: {})",
-            tag, model, url, e
-        ),
+    // debug.persist_logs 开关同时作为回声/全量日志的门（A11#1/#22）:
+    // 默认关闭——不再每轮 O(prompt) 全量 pretty 序列化与 IPC 回声
+    let debug_on = persist_config.is_some();
+
+    // 1. 审计日志: debug 开启时全量 pretty; 否则单行摘要(零序列化开销)
+    if debug_on {
+        match serde_json::to_string_pretty(&sanitized) {
+            Ok(pretty) => info!(
+                "[LLM_AUDIT:{}] model={} url={}\n{}",
+                tag, model, url, pretty
+            ),
+            Err(e) => warn!(
+                "[LLM_AUDIT:{}] model={} url={} (序列化失败: {})",
+                tag, model, url, e
+            ),
+        }
+    } else {
+        info!("[LLM_AUDIT:{}] model={} url={}", tag, model, url);
     }
 
     // 2. 文件持久化（脱敏请求体，避免 transient skill instructions 落盘）
@@ -692,9 +700,14 @@ pub(crate) fn log_and_emit_llm_request(
         })
         .map(|p| p.to_string_lossy().to_string());
 
-    // 3. 推送给前端（仅 Chat V2 流）
+    // 3. 推送给前端（仅 Chat V2 流，且仅 debug.persist_logs 开启时——A11#1:
+    //    全量脱敏请求体每轮回声 + 前端 rawRequests 无界累积,长会话 MB 级浪费;
+    //    磁盘副本已由 logFilePath 提供,默认不回声）
     let prefix = "chat_v2_event_";
     if !stream_event.starts_with(prefix) {
+        return;
+    }
+    if !debug_on {
         return;
     }
 
@@ -727,6 +740,11 @@ impl Default for RawPromptOptions {
 }
 
 impl LLMManager {
+    /// debug.persist_logs 是否开启（供各处按需回声/审计事件门控复用, A11#3）
+    pub fn debug_logging_enabled(&self) -> bool {
+        self.build_debug_persist_config().is_some()
+    }
+
     /// 从 DB 读取 debug 持久化配置
     fn build_debug_persist_config(&self) -> Option<DebugPersistConfig> {
         let enabled = self

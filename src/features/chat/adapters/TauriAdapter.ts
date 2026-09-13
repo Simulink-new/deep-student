@@ -1452,7 +1452,8 @@ export class ChatV2TauriAdapter {
       round: existing.length + 1,
     };
 
-    const rawRequests = [...existing, entry];
+    // A11#1: rawRequests 有界化——只保留最近 3 轮(旧实现按轮追加永不裁剪,长会话 MB 级内存增长)
+    const rawRequests = [...existing, entry].slice(-3);
 
     // rawRequest 保持最新一轮（兼容旧逻辑）
     const rawRequest = {

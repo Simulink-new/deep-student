@@ -350,13 +350,16 @@ pub async fn chat_v2_send_message(
 
     let model_id = request.options.as_ref().and_then(|o| o.model_id.as_deref());
     let is_multimodal_model = is_model_multimodal(&llm_manager, model_id).await;
-    let request_audit_payload =
-        build_backend_request_audit_payload(&request, model_id, is_multimodal_model);
-    if let Err(e) = window.emit("chat_v2_request_audit", &request_audit_payload) {
-        log::warn!(
-            "[ChatV2::handlers] Failed to emit chat_v2_request_audit event: {}",
-            e
-        );
+    // A11#3: 全量请求审计事件仅 debug.persist_logs 开启时发射(唯一消费者是 debug 面板)
+    if llm_manager.debug_logging_enabled() {
+        let request_audit_payload =
+            build_backend_request_audit_payload(&request, model_id, is_multimodal_model);
+        if let Err(e) = window.emit("chat_v2_request_audit", &request_audit_payload) {
+            log::warn!(
+                "[ChatV2::handlers] Failed to emit chat_v2_request_audit event: {}",
+                e
+            );
+        }
     }
 
     // 确保 assistant_message_id 存在，如果前端没有提供则由 Handler 生成
