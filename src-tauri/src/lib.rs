@@ -1500,6 +1500,7 @@ pub fn run() {
             // =================================================
             ,crate::dstu::handlers::common::dstu_list
             ,crate::dstu::handlers::common::dstu_get
+            ,crate::dstu::handlers::common::dstu_get_batch
             ,crate::dstu::handlers::common::dstu_create
             ,crate::dstu::handlers::common::dstu_update
             ,crate::dstu::handlers::common::dstu_delete

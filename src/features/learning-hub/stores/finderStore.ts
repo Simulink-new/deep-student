@@ -559,15 +559,22 @@ export const useFinderStore = create<FinderState>()(
             return item.name.toLowerCase().includes(normalizedQuery);
           });
 
-          const recentResults = await Promise.all(
-            recentItems.map(async (recent) => {
-              let getResult = await dstu.get(recent.path);
-              if (!getResult.ok) {
-                getResult = await dstu.get(`/${recent.id}`);
-              }
-              return { recent, getResult };
-            })
-          );
+          // ★ perf-audit task-029: 批量取回(旧 N+1),失败项 /{id} 重试一批
+          const primaryResults = await dstu.getBatch(recentItems.map((recent) => recent.path));
+          const failedIndices = primaryResults
+            .map((result, index) => (result.ok ? -1 : index))
+            .filter((index) => index >= 0);
+          const retryResults = failedIndices.length
+            ? await dstu.getBatch(failedIndices.map((index) => `/${recentItems[index].id}`))
+            : [];
+          let retryCursor = 0;
+          const recentResults = recentItems.map((recent, index) => {
+            let getResult = primaryResults[index];
+            if (!getResult.ok && retryCursor < retryResults.length) {
+              getResult = retryResults[retryCursor++];
+            }
+            return { recent, getResult };
+          });
 
           const recentNodes: DstuNode[] = [];
           for (const { recent, getResult } of recentResults) {
@@ -669,18 +676,23 @@ export const useFinderStore = create<FinderState>()(
             recentItems = recentItems.filter(item => item.type === currentPath.typeFilter);
           }
 
-          // ★ 修复2: 并发加载提升性能（而非串行 for 循环）
-          const results = await Promise.all(
-            recentItems.map(async (recent) => {
-              // ★ 修复3: 优先用 path，失败则用 ID 重试（处理资源移动场景）
-              let result = await dstu.get(recent.path);
-              if (!result.ok) {
-                // 降级：尝试用 ID 构造路径重试
-                result = await dstu.get(`/${recent.id}`);
-              }
-              return { recent, result };
-            })
-          );
+          // ★ perf-audit task-029: 批量加载——旧 Promise.all×dstu.get 是 N+1 invoke(50 项最坏 100 次)
+          // 先按 path 一批取回,失败项再用 /{id} 构造路径重试一批(共 ≤2 次 invoke)
+          const primaryResults = await dstu.getBatch(recentItems.map((recent) => recent.path));
+          const failedIndices = primaryResults
+            .map((result, index) => (result.ok ? -1 : index))
+            .filter((index) => index >= 0);
+          const retryResults = failedIndices.length
+            ? await dstu.getBatch(failedIndices.map((index) => `/${recentItems[index].id}`))
+            : [];
+          let retryCursor = 0;
+          const results = recentItems.map((recent, index) => {
+            let result = primaryResults[index];
+            if (!result.ok && retryCursor < retryResults.length) {
+              result = retryResults[retryCursor++];
+            }
+            return { recent, result };
+          });
 
           // 提取成功的资源，清理失效记录
           const nodes: DstuNode[] = [];

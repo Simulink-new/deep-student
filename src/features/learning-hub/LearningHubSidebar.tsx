@@ -6,9 +6,8 @@ import { MagnifyingGlass, Plus, FolderPlus, X, Trash, CircleNotch, FlowArrow, Ch
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { textbookDstuAdapter } from '@/dstu/adapters/textbookDstuAdapter';
-import { attachmentDstuAdapter } from '@/dstu/adapters/attachmentDstuAdapter';
 import { notesDstuAdapter } from '@/dstu/adapters/notesDstuAdapter';
-import { extractFileName, extractDisplayFileName, fileManager } from '@/utils/fileManager';
+import { extractDisplayFileName, fileManager } from '@/utils/fileManager';
 import { getMemoryConfig } from '@/api/memoryApi';
 import { MemoryFolderBanner } from './components/MemoryFolderBanner';
 import { MemoryTreePreview } from './components/MemoryTreePreview';
@@ -40,27 +39,6 @@ interface TextbookImportProgress {
   progress: number;
   error?: string;
 }
-
-// ============================================================================
-// ★ 拖拽导入：文件类型分类常量（模块级，避免每次渲染重建）
-// ============================================================================
-
-/** 文档类扩展名集合（通过 textbooks_add 后端命令导入） */
-const DOCUMENT_EXTENSIONS = new Set([
-  'pdf', 'docx', 'txt', 'md', 'markdown', 'html', 'htm',
-  'xlsx', 'xls', 'xlsb', 'ods',
-  'pptx', 'epub', 'rtf',
-  'csv', 'json', 'xml',
-]);
-
-/** 图片类扩展名集合 */
-const IMAGE_EXTENSIONS = new Set([
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic', 'heif',
-]);
-
-/** 从文件名获取扩展名 */
-const getFileExtension = (name: string): string =>
-  (name.split('.').pop() || '').toLowerCase();
 
 // 懒加载向量化状态视图
 const IndexStatusView = lazy(() => import('./views/IndexStatusView'));
@@ -100,9 +78,9 @@ import type { VfsResourceType } from '@/features/chat/context/types';
 import {
   consumePathsDropHandledFlag,
   isDragDropBlockedView,
-  partitionMarkdownNoteImports,
   summarizeFailedMarkdownFiles,
 } from './dragDropRouting';
+import { importDroppedResources } from './resourceDropImport';
 import { getCreatableFolderId } from './viewGuards';
 import {
   getFinderPathDisplayPath,
@@ -395,6 +373,9 @@ export function LearningHubSidebar({
 
   // ★ 监听 DSTU 资源变化，自动刷新列表（带防抖，避免批量操作时频繁刷新）
   const watchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // perf-audit B4: 全量刷新节流状态
+  const lastWatchRefreshAtRef = useRef(0);
+  const WATCH_REFRESH_MIN_INTERVAL_MS = 2000;
 
   useEffect(() => {
     if (currentPath.viewKind === 'indexStatus' || currentPath.viewKind === 'memory' || currentPath.viewKind === 'desktop') {
@@ -410,12 +391,25 @@ export function LearningHubSidebar({
         event.type === 'restored' ||
         event.type === 'purged'
       ) {
-        // 防抖：300ms 内多次事件只触发一次刷新
+        // perf-audit B4: 防抖+最大等待节流——旧纯 300ms 防抖在事件风暴(批量 OCR ~3 事件/秒)
+        // 下退化为几乎每事件一次全量刷新(limit:10000);现在风暴期最多每 2s 刷一次,停静 300ms 后补一次
+        const now = Date.now();
+        const sinceLast = now - lastWatchRefreshAtRef.current;
+        if (sinceLast >= WATCH_REFRESH_MIN_INTERVAL_MS) {
+          lastWatchRefreshAtRef.current = now;
+          if (watchDebounceRef.current) {
+            clearTimeout(watchDebounceRef.current);
+            watchDebounceRef.current = null;
+          }
+          handleRefresh();
+          return;
+        }
         if (watchDebounceRef.current) {
           clearTimeout(watchDebounceRef.current);
         }
         watchDebounceRef.current = setTimeout(() => {
           watchDebounceRef.current = null;
+          lastWatchRefreshAtRef.current = Date.now();
           handleRefresh();
         }, 300);
       }
@@ -923,202 +917,89 @@ export function LearningHubSidebar({
     }
   };
 
+  const notifyDropImportResult = useCallback((
+    successCount: number,
+    failedCount: number,
+    unsupportedNames: string[],
+  ) => {
+    const unsupportedHint = unsupportedNames.length > 0
+      ? `\n${t('finder.dragDrop.unsupportedFiles', '不支持：{{names}}', {
+          names: unsupportedNames.slice(0, 3).join('、') + (unsupportedNames.length > 3 ? '…' : ''),
+        })}`
+      : '';
+
+    if (successCount > 0 && failedCount === 0) {
+      showGlobalNotification('success',
+        t('finder.dragDrop.importSuccess', '已导入 {{count}} 个文件', { count: successCount }) + unsupportedHint
+      );
+      return;
+    }
+    if (successCount > 0) {
+      showGlobalNotification('warning',
+        t('finder.dragDrop.importPartial', '导入 {{success}} 个成功，{{failed}} 个失败', {
+          success: successCount,
+          failed: failedCount,
+        }) + unsupportedHint
+      );
+      return;
+    }
+    if (unsupportedNames.length > 0 && failedCount === 0) {
+      showGlobalNotification('warning', t('finder.dragDrop.unsupportedType', '不支持的文件类型') + unsupportedHint);
+      return;
+    }
+    showGlobalNotification('error', t('finder.dragDrop.importFailed', '文件导入失败') + unsupportedHint);
+  }, [t]);
+
+  const finishDropImport = useCallback((firstImportedNode: DstuNode | null) => {
+    handleRefresh();
+    if (!firstImportedNode) return;
+    if (firstImportedNode.type === 'note') {
+      openImportedMarkdownNote(firstImportedNode);
+    } else if (onOpenApp) {
+      const itemType: FolderItemType = firstImportedNode.type === 'image' || firstImportedNode.type === 'file'
+        ? firstImportedNode.type
+        : 'textbook';
+      onOpenApp(dstuNodeToResourceListItem(firstImportedNode, itemType));
+    }
+  }, [handleRefresh, onOpenApp, openImportedMarkdownNote]);
+
   /**
    * 处理 Tauri 原生文件路径拖拽（优先路径，性能更好）
    * 按扩展名分类后分发到对应适配器
    */
   const handlePathsDrop = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
-    // 回收站/特殊视图不允许拖入
     if (isDragDropBlockedView(currentPath)) {
       showGlobalNotification('warning', t('finder.dragDrop.notAllowedHere', '当前视图不支持拖入文件'));
       return;
     }
-    // 统一导入主链路：本次拖拽已走路径分支，后续 files 回调直接跳过。
     pathsDropHandledRef.current = true;
     if (importProgress.isImporting) return;
 
     debugLog.log('[LearningHub] 拖拽导入文件:', paths.length, '个文件');
 
-    const shouldImportMarkdownAsNotes = currentQuickAccessType === 'notes';
-
-    // 按类型分组
-    const docPaths: string[] = [];
-    const imagePaths: string[] = [];
-    const otherPaths: string[] = [];
-
-    for (const p of paths) {
-      const name = extractFileName(p);
-      const ext = getFileExtension(name);
-      if (DOCUMENT_EXTENSIONS.has(ext)) {
-        docPaths.push(p);
-      } else if (IMAGE_EXTENSIONS.has(ext)) {
-        imagePaths.push(p);
-      } else {
-        otherPaths.push(p);
-      }
-    }
-
-    debugLog.log('[LearningHub] 文件分类:', {
-      documents: docPaths.length,
-      images: imagePaths.length,
-      others: otherPaths.length,
-      markdownAsNotes: shouldImportMarkdownAsNotes,
-    });
-
-    const { markdownItems: markdownNotePaths, otherItems: textbookPaths } = partitionMarkdownNoteImports(
-      docPaths,
-      (path) => extractFileName(path),
-      shouldImportMarkdownAsNotes,
-    );
-
-    let totalSuccess = 0;
-    let totalFailed = 0;
-    let unlisten: UnlistenFn | null = null;
-    let firstImportedNode: DstuNode | null = null;
-
     try {
-      const dropTargetFolderId = currentCreatableFolderId;
+      const result = await importDroppedResources({
+        paths,
+        folderId: currentCreatableFolderId,
+        markdownAsNotes: currentQuickAccessType === 'notes',
+        onTextbookProgress: (state) => {
+          if (!isMountedRef.current) return;
+          setImportProgress(state);
+        },
+      });
 
-      if (markdownNotePaths.length > 0) {
-        const markdownResult = await importMarkdownPathNotes(markdownNotePaths, dropTargetFolderId);
-
-        if (!isMountedRef.current) return;
-
-        totalSuccess += markdownResult.importedNodes.length;
-        totalFailed += markdownResult.failedCount;
-        firstImportedNode = markdownResult.importedNodes[0] ?? firstImportedNode;
-
-        if (markdownResult.importedNodes.length === 0 && markdownResult.failedCount > 0) {
-          debugLog.error('[LearningHub] Markdown 笔记导入失败:', markdownResult.firstError);
-        }
-      }
-
-      // 1. 文档类：通过 textbookDstuAdapter 导入（支持 PDF 渲染、哈希去重等）
-      if (textbookPaths.length > 0) {
-        const firstFileName = textbookPaths[0] ? extractDisplayFileName(textbookPaths[0]) : '';
-        setImportProgress({
-          isImporting: true,
-          fileName: firstFileName,
-          stage: 'hashing',
-          progress: 0,
-        });
-
-        // 监听后端进度事件
-        unlisten = await listen<TextbookImportProgress>('textbook-import-progress', (event) => {
-          const { file_name, stage, current_page, total_pages, progress, error: progressError } = event.payload;
-          setImportProgress(prev => ({
-            ...prev,
-            fileName: file_name,
-            stage: stage as ImportStage,
-            currentPage: current_page,
-            totalPages: total_pages,
-            progress,
-            error: progressError,
-          }));
-        });
-
-        const docResult = await textbookDstuAdapter.addTextbooks(textbookPaths, dropTargetFolderId);
-
-        if (unlisten) { unlisten(); unlisten = null; }
-
-        if (!isMountedRef.current) return;
-
-        if (docResult.ok) {
-          totalSuccess += docResult.value.length;
-          if (!firstImportedNode) {
-            firstImportedNode = docResult.value[0] ?? null;
-          }
-        } else {
-          totalFailed += textbookPaths.length;
-          debugLog.error('[LearningHub] 文档导入失败:', docResult.error.toUserMessage());
-        }
-
-        setImportProgress(prev => ({ ...prev, isImporting: false }));
-      }
-
-      // 2. 图片类/其他文件：通过 attachmentDstuAdapter 创建
-      const attachmentPaths = [...imagePaths, ...otherPaths];
-      if (attachmentPaths.length > 0) {
-        // 使用 convertFileSrc + fetch 读取本地文件
-        const { convertFileSrc } = await import('@tauri-apps/api/core');
-        const limit = pLimit(3);
-
-        const attachResults = await Promise.all(
-          attachmentPaths.map((filePath) =>
-            limit(async () => {
-              const name = extractFileName(filePath);
-              const ext = getFileExtension(name);
-              const isImage = IMAGE_EXTENSIONS.has(ext);
-
-              try {
-                const url = convertFileSrc(filePath);
-                const res = await fetch(url);
-                if (!res.ok) return { ok: false as const, name };
-
-                const blob = await res.blob();
-                const file = new File([blob], name, {
-                  type: blob.type || (isImage ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : 'application/octet-stream'),
-                });
-
-                const result = await attachmentDstuAdapter.create(
-                  file,
-                  isImage ? 'image' : 'file',
-                  currentCreatableFolderId ? { folderId: currentCreatableFolderId } : undefined,
-                );
-                return { ok: result.ok, name };
-              } catch (e) {
-                debugLog.error('[LearningHub] 附件导入失败:', name, e);
-                return { ok: false as const, name };
-              }
-            })
-          )
-        );
-
-        if (!isMountedRef.current) return;
-
-        for (const r of attachResults) {
-          if (r.ok) totalSuccess++;
-          else totalFailed++;
-        }
-      }
-
-      // 3. 显示结果通知
-      if (totalSuccess > 0 && totalFailed === 0) {
-        showGlobalNotification('success',
-          t('finder.dragDrop.importSuccess', '已导入 {{count}} 个文件', { count: totalSuccess })
-        );
-      } else if (totalSuccess > 0 && totalFailed > 0) {
-        showGlobalNotification('warning',
-          t('finder.dragDrop.importPartial', '导入 {{success}} 个成功，{{failed}} 个失败', {
-            success: totalSuccess,
-            failed: totalFailed,
-          })
-        );
-      } else if (totalFailed > 0) {
-        showGlobalNotification('error',
-          t('finder.dragDrop.importFailed', '文件导入失败')
-        );
-      }
-
-      // 4. 刷新文件列表
-      if (totalSuccess > 0) {
-        handleRefresh();
-        if (firstImportedNode) {
-          if (firstImportedNode.type === 'note') {
-            openImportedMarkdownNote(firstImportedNode);
-          } else if (onOpenApp) {
-            onOpenApp(dstuNodeToResourceListItem(firstImportedNode, 'textbook'));
-          }
-        }
+      if (!isMountedRef.current) return;
+      notifyDropImportResult(result.successCount, result.failedCount, result.unsupportedNames);
+      if (result.successCount > 0) {
+        finishDropImport(result.firstImportedNode);
       }
     } catch (error) {
-      if (unlisten) unlisten();
       debugLog.error('[LearningHub] 拖拽导入异常:', error);
       setImportProgress(prev => ({ ...prev, isImporting: false }));
       showGlobalNotification('error', t('finder.dragDrop.importFailed', '文件导入失败'));
     }
-  }, [currentCreatableFolderId, currentPath, currentQuickAccessType, importMarkdownPathNotes, importProgress.isImporting, openImportedMarkdownNote, t, handleRefresh, onOpenApp]);
+  }, [currentCreatableFolderId, currentPath, currentQuickAccessType, finishDropImport, importProgress.isImporting, notifyDropImportResult, t]);
 
   /**
    * 处理浏览器 File 对象拖拽（非 Tauri 环境兜底）
@@ -1136,75 +1017,27 @@ export function LearningHubSidebar({
 
     debugLog.log('[LearningHub] 浏览器拖拽导入:', files.length, '个文件');
 
-    const shouldImportMarkdownAsNotes = currentQuickAccessType === 'notes';
-    const { markdownItems: markdownFiles, otherItems: attachmentFiles } = partitionMarkdownNoteImports(
-      files,
-      (file) => file.name,
-      shouldImportMarkdownAsNotes,
-    );
+    try {
+      const result = await importDroppedResources({
+        files,
+        folderId: currentCreatableFolderId,
+        markdownAsNotes: currentQuickAccessType === 'notes',
+        onTextbookProgress: (state) => {
+          if (!isMountedRef.current) return;
+          setImportProgress(state);
+        },
+      });
 
-    let totalSuccess = 0;
-    let totalFailed = 0;
-    const limit = pLimit(3);
-    let firstImportedNode: DstuNode | null = null;
-
-    if (markdownFiles.length > 0) {
-      const markdownResult = await importMarkdownFileObjects(markdownFiles, currentCreatableFolderId);
       if (!isMountedRef.current) return;
-
-      totalSuccess += markdownResult.importedNodes.length;
-      totalFailed += markdownResult.failedCount;
-      firstImportedNode = markdownResult.importedNodes[0] ?? null;
-    }
-
-    const results = await Promise.all(
-      attachmentFiles.map((file) =>
-        limit(async () => {
-          const ext = getFileExtension(file.name);
-          const isImage = IMAGE_EXTENSIONS.has(ext);
-
-          try {
-            const result = await attachmentDstuAdapter.create(
-              file,
-              isImage ? 'image' : 'file',
-            );
-            return result.ok;
-          } catch {
-            return false;
-          }
-        })
-      )
-    );
-
-    if (!isMountedRef.current) return;
-
-    for (const ok of results) {
-      if (ok) totalSuccess++;
-      else totalFailed++;
-    }
-
-    if (totalSuccess > 0 && totalFailed === 0) {
-      showGlobalNotification('success',
-        t('finder.dragDrop.importSuccess', '已导入 {{count}} 个文件', { count: totalSuccess })
-      );
-    } else if (totalSuccess > 0) {
-      showGlobalNotification('warning',
-        t('finder.dragDrop.importPartial', '导入 {{success}} 个成功，{{failed}} 个失败', {
-          success: totalSuccess,
-          failed: totalFailed,
-        })
-      );
-    } else {
+      notifyDropImportResult(result.successCount, result.failedCount, result.unsupportedNames);
+      if (result.successCount > 0) {
+        finishDropImport(result.firstImportedNode);
+      }
+    } catch (error) {
+      debugLog.error('[LearningHub] 浏览器拖拽导入异常:', error);
       showGlobalNotification('error', t('finder.dragDrop.importFailed', '文件导入失败'));
     }
-
-    if (totalSuccess > 0) {
-      handleRefresh();
-      if (firstImportedNode) {
-        openImportedMarkdownNote(firstImportedNode);
-      }
-    }
-  }, [currentCreatableFolderId, currentPath, currentQuickAccessType, handleRefresh, importMarkdownFileObjects, openImportedMarkdownNote, t]);
+  }, [currentCreatableFolderId, currentPath, currentQuickAccessType, finishDropImport, notifyDropImportResult, t]);
 
   // 是否允许拖拽导入（排除回收站、特殊视图等）
   const isDragDropEnabled = mode !== 'canvas' && !isDragDropBlockedView(currentPath);
@@ -2232,7 +2065,7 @@ export function LearningHubSidebar({
         onFilesDropped={handleFilesDrop}
         onPathsDropped={handlePathsDrop}
         enabled={isDragDropEnabled}
-        acceptedFileTypes={[FILE_TYPES.IMAGE, FILE_TYPES.DOCUMENT]}
+        acceptedFileTypes={[FILE_TYPES.IMAGE, FILE_TYPES.DOCUMENT, FILE_TYPES.AUDIO, FILE_TYPES.VIDEO]}
         maxFiles={20}
         maxFileSize={200 * 1024 * 1024}
         customOverlayText={t('finder.dragDrop.overlayText', '拖放文件到此处导入')}

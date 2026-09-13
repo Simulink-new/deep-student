@@ -280,6 +280,34 @@ export async function get(path: string): Promise<Result<DstuNode>> {
 }
 
 /**
+ * 批量获取资源详情（perf-audit task-029/B2）
+ * 单次 invoke 取回一批，消灭最近视图 N+1（旧路径 50 项×含重试最坏 ~100 次 dstu_get）
+ * @returns 与 paths 等长的 Result 数组；单项失败/未找到为 err，不拖垮整批
+ */
+export async function getBatch(paths: string[]): Promise<Result<DstuNode>[]> {
+  if (!paths.length) return [];
+  try {
+    const results = await invoke<(DstuNode | null)[]>('dstu_get_batch', { paths });
+    return (results || []).map((node, i) =>
+      node
+        ? ok(node)
+        : err(
+            new VfsError(
+              VfsErrorCode.NOT_FOUND,
+              `资源未找到: ${paths[i]}`,
+              true,
+              { path: paths[i] }
+            )
+          )
+    );
+  } catch (error: unknown) {
+    const vfsError = toVfsError(error, '批量获取资源详情失败', { count: paths.length });
+    console.error(LOG_PREFIX, 'getBatch() failed:', vfsError.toDetailedMessage());
+    return paths.map(() => err(vfsError));
+  }
+}
+
+/**
  * 创建资源
  */
 export async function create(path: string, options: DstuCreateOptions): Promise<Result<DstuNode>> {
@@ -305,6 +333,12 @@ export async function create(path: string, options: DstuCreateOptions): Promise<
       }
     }
 
+    const folderId = options.folderId?.trim() || undefined;
+    const metadataFolderId = typeof options.metadata?.folderId === 'string'
+      ? options.metadata.folderId.trim()
+      : '';
+    const resolvedFolderId = folderId || (metadataFolderId || undefined);
+
     const result = await invoke<DstuNode>('dstu_create', {
       path,
       options: {
@@ -312,6 +346,8 @@ export async function create(path: string, options: DstuCreateOptions): Promise<
         name: options.name,
         content: options.content,
         fileBase64,
+        fileData: fileBase64,
+        folderId: resolvedFolderId,
         metadata: options.metadata,
       },
     });
@@ -957,6 +993,7 @@ export async function exportResource(
 export const dstu = {
   list,
   get,
+  getBatch,
   create,
   update,
   delete: deleteResource,

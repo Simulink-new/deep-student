@@ -356,46 +356,7 @@ pub async fn dstu_get(
         }
     };
 
-    let node = match resource_type.as_str() {
-        "notes" => note_handlers::handle_get(&vfs_db, &id).await?,
-        "textbooks" => textbook_handlers::handle_get(&vfs_db, &id).await?,
-        "exams" => exam_handlers::handle_get(&vfs_db, &id).await?,
-        "translations" => translation_handlers::handle_get(&vfs_db, &id).await?,
-        "essays" => essay_handlers::handle_get(&vfs_db, &id).await?,
-        "folders" => {
-            match crate::vfs::VfsFolderRepo::get_folder(&vfs_db, &id) {
-                Ok(Some(folder)) => {
-                    let folder_path = build_simple_resource_path(&folder.id);
-                    Some(DstuNode::folder(&folder.id, &folder_path, &folder.title))
-                }
-                Ok(None) => {
-                    if is_uuid_format(&id) {
-                        log::info!("[DSTU::handlers] dstu_get: folder not found for UUID, trying fallback lookup, id={}", id);
-                        fallback_lookup_uuid_resource(&vfs_db, &id)
-                    } else {
-                        None
-                    }
-                }
-                Err(e) => {
-                    log::error!(
-                        "[DSTU::handlers] dstu_get: FAILED - get_folder error, id={}, error={}",
-                        id,
-                        e
-                    );
-                    return Err(DstuError::from(e.to_string()));
-                }
-            }
-        }
-        "mindmaps" => mindmap_handlers::handle_get(&vfs_db, &id).await?,
-        "files" | "images" => file_handlers::handle_get(&vfs_db, &id).await?,
-        _ => {
-            log::warn!(
-                "[DSTU::handlers] dstu_get: unsupported type={}",
-                resource_type
-            );
-            None
-        }
-    };
+    let node = get_node_by_type_and_id(&vfs_db, &resource_type, &id).await?;
 
     if node.is_some() {
         log::info!(
@@ -412,6 +373,92 @@ pub async fn dstu_get(
     }
 
     Ok(node)
+}
+
+/// dstu_get 的类型分发核心（dstu_get 与 dstu_get_batch 共用）
+async fn get_node_by_type_and_id(
+    vfs_db: &Arc<VfsDatabase>,
+    resource_type: &str,
+    id: &str,
+) -> DstuResult<Option<DstuNode>> {
+    let node = match resource_type {
+        "notes" => note_handlers::handle_get(vfs_db, id).await?,
+        "textbooks" => textbook_handlers::handle_get(vfs_db, id).await?,
+        "exams" => exam_handlers::handle_get(vfs_db, id).await?,
+        "translations" => translation_handlers::handle_get(vfs_db, id).await?,
+        "essays" => essay_handlers::handle_get(vfs_db, id).await?,
+        "folders" => {
+            match crate::vfs::VfsFolderRepo::get_folder(vfs_db, id) {
+                Ok(Some(folder)) => {
+                    let folder_path = build_simple_resource_path(&folder.id);
+                    Some(DstuNode::folder(&folder.id, &folder_path, &folder.title))
+                }
+                Ok(None) => {
+                    if is_uuid_format(id) {
+                        log::info!("[DSTU::handlers] dstu_get: folder not found for UUID, trying fallback lookup, id={}", id);
+                        fallback_lookup_uuid_resource(vfs_db, id)
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "[DSTU::handlers] dstu_get: FAILED - get_folder error, id={}, error={}",
+                        id,
+                        e
+                    );
+                    return Err(DstuError::from(e.to_string()));
+                }
+            }
+        }
+        "mindmaps" => mindmap_handlers::handle_get(vfs_db, id).await?,
+        "files" | "images" => file_handlers::handle_get(vfs_db, id).await?,
+        _ => {
+            log::warn!(
+                "[DSTU::handlers] dstu_get: unsupported type={}",
+                resource_type
+            );
+            None
+        }
+    };
+    Ok(node)
+}
+
+/// 批量获取（perf-audit task-029/B2）: 消灭最近视图 N+1——
+/// 旧路径最近 50 项×含重试最坏 ~100 次 dstu_get invoke,现 1 次批量 + 可选 1 次重试批
+#[tauri::command]
+pub async fn dstu_get_batch(
+    paths: Vec<String>,
+    vfs_db: State<'_, Arc<VfsDatabase>>,
+) -> DstuResult<Vec<Option<DstuNode>>> {
+    log::debug!("[DSTU::handlers] dstu_get_batch: {} paths", paths.len());
+    let mut out = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let node = match extract_resource_info(path) {
+            Ok((resource_type, id)) => match get_node_by_type_and_id(&vfs_db, &resource_type, &id).await {
+                Ok(n) => n,
+                Err(e) => {
+                    // 单项失败不拖垮整批（镜像 dstu_get 单路径失败语义: 调用方按 None 处理）
+                    log::warn!(
+                        "[DSTU::handlers] dstu_get_batch: item failed - path={}, error={}",
+                        path,
+                        e
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                log::warn!(
+                    "[DSTU::handlers] dstu_get_batch: invalid path - path={}, error={}",
+                    path,
+                    e
+                );
+                None
+            }
+        };
+        out.push(node);
+    }
+    Ok(out)
 }
 
 // ============================================================================
@@ -491,7 +538,7 @@ pub async fn dstu_create(
             note_handlers::handle_create(&vfs_db, &window, &options, &path, "notes").await?
         }
         "textbooks" => {
-            textbook_handlers::handle_create(&vfs_db, &options, options.folder_id.clone()).await?
+            textbook_handlers::handle_create(&vfs_db, &options, options.resolved_folder_id()).await?
         }
         "exams" => exam_handlers::handle_create(&vfs_db, &options, &path).await?,
         "translations" => {
@@ -500,10 +547,10 @@ pub async fn dstu_create(
         "essays" => essay_handlers::handle_create(&vfs_db, &options, &path).await?,
         "mindmaps" => mindmap_handlers::handle_create(&vfs_db, &options, &path).await?,
         "images" => {
-            image_handlers::handle_create(&vfs_db, &options, &path, options.folder_id.clone()).await?
+            image_handlers::handle_create(&vfs_db, &options, &path, options.resolved_folder_id()).await?
         }
         "files" => {
-            file_handlers::handle_create(&vfs_db, &options, &path, options.folder_id.clone()).await?
+            file_handlers::handle_create(&vfs_db, &options, &path, options.resolved_folder_id()).await?
         }
         "cards" => {
             // ★ 2026-08-07 迁移补充：DstuNodeType 收编为 ResourceKind 后新增 Card 变体。
