@@ -964,6 +964,7 @@ pub fn run() {
             crate::commands::test_web_search_connectivity,
             crate::commands::get_image_as_base64,
             crate::commands::get_api_configurations,
+            crate::commands::get_api_config_ids,
             crate::commands::save_api_configurations,
             crate::commands::get_model_assignments,
             crate::commands::save_model_assignments,

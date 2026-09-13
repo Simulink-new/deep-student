@@ -3363,14 +3363,25 @@ export class ChatV2TauriAdapter {
     return capabilities.some(Boolean);
   }
 
+  // A6#1/B2/B5: 有效模型 id 集缓存——发送路径高频调用,30s TTL 内不重复 invoke
+  private apiConfigIdsCache: { ids: Set<string>; at: number } | null = null;
+  private static readonly API_CONFIG_IDS_TTL_MS = 30_000;
+
   private async getValidChatModelIdSet(): Promise<Set<string>> {
+    const now = Date.now();
+    if (this.apiConfigIdsCache && now - this.apiConfigIdsCache.at < ChatV2TauriAdapter.API_CONFIG_IDS_TTL_MS) {
+      return this.apiConfigIdsCache.ids;
+    }
     try {
-      const configs = await invoke<Array<{ id?: string | null }>>('get_api_configurations');
-      return new Set(
-        (configs || [])
-          .map((config) => (typeof config?.id === 'string' ? config.id.trim() : ''))
+      // id 投影命令: 只拉 id 数组(旧路径全量 ~25 字段含明文 api_key 过 IPC 只为取 id)
+      const ids = await invoke<string[]>('get_api_config_ids');
+      const set = new Set(
+        (ids || [])
+          .map((id) => (typeof id === 'string' ? id.trim() : ''))
           .filter((id) => id.length > 0)
       );
+      this.apiConfigIdsCache = { ids: set, at: now };
+      return set;
     } catch (error) {
       console.warn(LOG_PREFIX, 'Failed to load current API configuration ids:', getErrorMessage(error));
       return new Set();

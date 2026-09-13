@@ -1569,6 +1569,14 @@ pub async fn get_api_configurations(state: State<'_, AppState>) -> Result<Vec<Ap
     Ok(configs)
 }
 
+/// id 投影命令（A6#1/B2/B5）: 发送路径校验模型 id 只需 id 集，
+/// 旧路径每条消息全量拉 ~25 字段（含明文 api_key）过 IPC 只为取 id
+#[tauri::command]
+pub async fn get_api_config_ids(state: State<'_, AppState>) -> Result<Vec<String>> {
+    let configs = state.llm_manager.get_api_configs().await?;
+    Ok(configs.into_iter().map(|c| c.id).collect())
+}
+
 #[tauri::command]
 pub async fn save_api_configurations(
     configs: Vec<ApiConfig>,
