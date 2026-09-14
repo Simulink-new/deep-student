@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getBlobStreamUrl, fetchBlobStreamResponse } from '@/api/vfsFileApi';
 import { base64ToFile, estimateBase64Size, LARGE_FILE_THRESHOLD } from '@/utils/base64FileUtils';
 import { debugLog } from '@/debug-panel/debugMasterSwitch';
 import { classifyPdfError } from '@/features/pdf/types/pdfErrors';
@@ -170,7 +171,94 @@ export function usePdfLoader({
     
     try {
       debugLog.log('[usePdfLoader] Loading PDF from database for:', resolvedCacheKey);
-      
+
+      // ★ task-035/A4#1: 优先 pdfstream:// 协议流式加载（免整文件 base64 过 IPC），
+      //   无 blob / 协议拒绝 / 网络失败时回退下方 base64 路径
+      const streamUrl = await getBlobStreamUrl(nodeId);
+      if (controller.signal.aborted || requestId !== requestIdRef.current) {
+        return;
+      }
+
+      if (streamUrl) {
+        try {
+          const streamResp = await fetchBlobStreamResponse(streamUrl, controller.signal);
+          if (controller.signal.aborted || requestId !== requestIdRef.current) {
+            streamResp?.body?.cancel().catch(() => undefined);
+            return;
+          }
+
+          if (streamResp) {
+            // 大文件熔断：大小时机与 base64 路径一致（阈值/提示/流式回调均不变），
+            // 优先用 CORS 安全列表内的 Content-Length（Range 全量请求下即完整大小）在消费 body 前熔断
+            const applyLargeFileBreaker = (sizeBytes: number): boolean => {
+              setFileSize(sizeBytes);
+              const isLarge = sizeBytes > LARGE_FILE_HINT_THRESHOLD;
+              setIsLargeFile(isLarge);
+              if (sizeBytes > LARGE_FILE_THRESHOLD) {
+                streamResp.body?.cancel().catch(() => undefined);
+                if (originalPath && onNeedStreamFallback) {
+                  debugLog.warn('[usePdfLoader] File exceeds base64 threshold, falling back to pdfstream:', originalPath);
+                  onNeedStreamFallback(originalPath);
+                } else {
+                  debugLog.warn('[usePdfLoader] Large file detected:', sizeBytes, 'bytes');
+                  setError(
+                    `${i18n.t('learningHub:file.previewTooLarge', { defaultValue: 'File is too large to preview' })} (${formatBytes(sizeBytes)})`
+                  );
+                }
+                setLoading(false);
+                return true;
+              }
+              if (isLarge) {
+                debugLog.warn('[usePdfLoader] Large file detected:', sizeBytes, 'bytes');
+              }
+              return false;
+            };
+
+            const declaredSize = Number(streamResp.headers.get('Content-Length'));
+            const knownSize =
+              Number.isFinite(declaredSize) && declaredSize > 0 ? declaredSize : null;
+
+            if (knownSize !== null && applyLargeFileBreaker(knownSize)) {
+              return;
+            }
+
+            const streamBlob = await streamResp.blob();
+            if (controller.signal.aborted || requestId !== requestIdRef.current) {
+              return;
+            }
+
+            if (knownSize === null && applyLargeFileBreaker(streamBlob.size)) {
+              return;
+            }
+
+            const streamFile = new File([streamBlob], fileName, { type: 'application/pdf' });
+
+            // 缓存文件（与 base64 路径同一缓存/键）
+            cleanCacheIfNeeded(streamFile.size);
+            pdfCache.set(cacheStorageKey, streamFile);
+            pdfCacheTotalSize += streamFile.size;
+
+            fileRef.current = streamFile;
+            setFile(streamFile);
+            setLoading(false);
+            setRetryAttempt(0);
+
+            // 成功加载后自动触发 OCR 流水线（与 base64 路径一致）
+            invoke('vfs_ensure_ocr_pipeline', { fileId: nodeId }).catch((ocrErr: unknown) => {
+              debugLog.warn('[usePdfLoader] OCR pipeline trigger failed (non-fatal):', ocrErr);
+            });
+            debugLog.log('[usePdfLoader] Loaded PDF via pdfstream:', resolvedCacheKey, streamFile.size, 'bytes');
+            return; // 流式加载成功，无需再走 base64
+          }
+          // streamResp 为 null（协议 403/404/请求失败）→ 回退 base64
+        } catch (streamErr: unknown) {
+          if (controller.signal.aborted || requestId !== requestIdRef.current) {
+            return;
+          }
+          debugLog.warn('[usePdfLoader] pdfstream load failed, falling back to base64:', streamErr);
+        }
+      }
+
       const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
         attachmentId: nodeId,
       });

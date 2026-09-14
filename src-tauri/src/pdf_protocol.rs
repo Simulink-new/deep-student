@@ -155,15 +155,22 @@ pub fn handle_asset_protocol(
             .body(Vec::new())?);
     }
 
-    // 安全检查 2：只允许访问 .pdf 文件（大小写不敏感，兼容 Windows 上的 .PDF）
+    // 安全检查 2：文件类型限制（perf-audit task-035/A4#1）
+    // - VFS blobs 目录内的文件（hash 命名、带扩展名、内容受 VFS 管控）：放行全部扩展名
+    //   ——供图片/富文档/音视频视图经 pdfstream:// 流式加载，消灭整文件 base64 过 IPC(20MB→54MB 拷贝/次)
+    // - 其余白名单目录：维持仅 .pdf（大小写不敏感，兼容 Windows 上的 .PDF），安全面不变
     let is_pdf = canonical_path
         .extension()
         .and_then(|s| s.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("pdf"))
         .unwrap_or(false);
-    if !is_pdf {
+    let in_blobs_dir = allowed_dirs.iter().any(|dir| {
+        dir.to_string_lossy().replace('\\', "/").ends_with("/blobs")
+            && canonical_path.starts_with(dir)
+    });
+    if !is_pdf && !in_blobs_dir {
         warn!(
-            "[pdfstream] 拒绝访问非 PDF 文件: {}",
+            "[pdfstream] 拒绝访问非 PDF 且不在 blobs 目录内的文件: {}",
             canonical_path.display()
         );
         return Ok(tauri::http::Response::builder()

@@ -25,7 +25,8 @@ import { PreviewProvider, usePreviewContext, type PreviewType } from './PreviewC
 import type { ToolbarPreviewType } from './UnifiedPreviewToolbar';
 import { usePdfLoader } from '@/hooks/usePdfLoader';
 import { usePdfFocusListener } from './usePdfFocusListener';
-import { base64ToBlob, base64ToUint8Array, estimateBase64Size, LARGE_FILE_THRESHOLD } from '@/utils/base64FileUtils';
+import { base64ToBlob, base64ToUint8Array, estimateBase64Size, uint8ArrayToBase64, LARGE_FILE_THRESHOLD } from '@/utils/base64FileUtils';
+import { getBlobStreamUrl, fetchBlobStreamResponse, probeBlobStreamUrl } from '@/api/vfsFileApi';
 import { getErrorMessage } from '@/utils/errorUtils';
 import { fileManager } from '@/utils/fileManager';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
@@ -242,19 +243,32 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
   const handleSaveFile = useCallback(async () => {
     setIsSaving(true);
     try {
-      const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
-        attachmentId: node.id,
-      });
-
-      if (!result?.found || !result?.content) {
-        showGlobalNotification('error', t('learningHub:file.loadFailed', '加载文件失败'));
-        return;
+      // ★ task-035/A4#1: 优先 pdfstream:// 协议流式取字节（该路径多用于超大文件导出，
+      //   免 base64 膨胀与 IPC 拷贝），不可用时回退 base64 路径
+      let bytes: Uint8Array | null = null;
+      const streamUrl = await getBlobStreamUrl(node.id);
+      if (streamUrl) {
+        const streamResp = await fetchBlobStreamResponse(streamUrl);
+        if (streamResp) {
+          bytes = new Uint8Array(await streamResp.arrayBuffer());
+        }
       }
 
-      const bytes = base64ToUint8Array(result.content);
-      if (!bytes) {
-        showGlobalNotification('error', t('learningHub:file.loadFailed', '加载文件失败'));
-        return;
+      if (!bytes || bytes.byteLength === 0) {
+        const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
+          attachmentId: node.id,
+        });
+
+        if (!result?.found || !result?.content) {
+          showGlobalNotification('error', t('learningHub:file.loadFailed', '加载文件失败'));
+          return;
+        }
+
+        bytes = base64ToUint8Array(result.content);
+        if (!bytes) {
+          showGlobalNotification('error', t('learningHub:file.loadFailed', '加载文件失败'));
+          return;
+        }
       }
 
       // 从文件名推断扩展名
@@ -311,6 +325,44 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
     };
 
     const loadBinaryContent = async () => {
+      // ★ task-035/A4#1: 优先 pdfstream:// 协议流式加载（免整文件 base64 过 IPC）：
+      //   - 富文档（docx/xlsx/pptx）取流式字节后本地转 base64，供 RichDocumentPreview 解析；
+      //   - 音视频直接以协议 URL 作为 <audio>/<video> 源（支持 Range 流式播放）；
+      //   不可用（无 blob / 协议拒绝）时回退原 base64 路径。
+      const streamUrl = await getBlobStreamUrl(node.id);
+      if (!isMounted) return;
+
+      if (streamUrl) {
+        if (isAudio || isVideo) {
+          const probedUrl = await probeBlobStreamUrl(streamUrl);
+          if (!isMounted) return;
+          if (probedUrl) {
+            // 协议 URL 无需 revoke（非 blob: URL，revokeObjectURL 为无害 no-op）
+            setMediaObjectUrl((prev) => {
+              if (prev) {
+                URL.revokeObjectURL(prev);
+              }
+              return probedUrl;
+            });
+            return;
+          }
+        } else {
+          const streamResp = await fetchBlobStreamResponse(streamUrl);
+          if (!isMounted) return;
+          if (streamResp) {
+            const streamBytes = new Uint8Array(await streamResp.arrayBuffer());
+            if (!isMounted) return;
+            if (streamBytes.byteLength > LARGE_FILE_THRESHOLD) {
+              setError(t('learningHub:file.previewTooLarge', '文件过大，无法预览'));
+              setIsPreviewTooLarge(true);
+              return;
+            }
+            setBase64Content(uint8ArrayToBase64(streamBytes));
+            return;
+          }
+        }
+      }
+
       const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
         attachmentId: node.id,
       });

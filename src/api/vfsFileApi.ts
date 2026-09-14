@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 
 export type FileType = 'document' | 'image' | 'audio' | 'video';
 
@@ -139,4 +139,69 @@ export function inferFileType(mimeType: string): FileType {
   if (mimeType.startsWith('audio/')) return 'audio';
   if (mimeType.startsWith('video/')) return 'video';
   return 'document';
+}
+
+// ============================================================================
+// pdfstream:// 协议流式加载（perf task-035/A4#1）
+// 替代 vfs_get_attachment_content 的整文件 base64 IPC 拷贝：
+// 后端命令返回 blob 绝对路径，前端 convertFileSrc 转为协议 URL 后由 WebView
+// 直接经自定义协议读取（支持 HTTP Range，协议带 CORS 头）。
+// ============================================================================
+
+/**
+ * 获取文件 blob 的 pdfstream:// 协议 URL。
+ *
+ * @param fileId 文件 ID（与旧 attachmentId 同值；支持 file_/tb_/att_/img_ 前缀）
+ * @returns 协议 URL；无 blob 存储、ID 不存在或查询失败时返回 null（调用方应回退 base64 路径）
+ */
+export async function getBlobStreamUrl(fileId: string): Promise<string | null> {
+  try {
+    const blobPath = await invoke<string | null>('vfs_get_blob_pdfstream_url', { fileId });
+    if (!blobPath) return null;
+    return convertFileSrc(blobPath, 'pdfstream');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 通过 pdfstream:// URL 发起完整内容的流式请求，返回 Response（供调用方按需取字节/大小）。
+ *
+ * 注意：协议对无 Range 头的 GET 有 4MB 截断（返回 206 首段），
+ * 因此这里显式携带 `Range: bytes=0-` 以一次性取回完整内容；
+ * 协议的 CORS 配置（Access-Control-Allow-Headers: Range）已放行该请求头。
+ *
+ * @returns 可用的 Response（状态 200/206，headers 含完整 Content-Length）；
+ *          请求失败或被协议拒绝（如非 .pdf 扩展名 403）时返回 null
+ */
+export async function fetchBlobStreamResponse(
+  url: string,
+  signal?: AbortSignal
+): Promise<Response | null> {
+  try {
+    const resp = await fetch(url, { headers: { Range: 'bytes=0-' }, signal });
+    if (!resp.ok && resp.status !== 206) return null;
+    return resp;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 探测 pdfstream:// URL 是否可被 <img>/<audio>/<video> 等元素直接消费。
+ * 以 `Range: bytes=0-0` 取 1 字节探测（协议目前仅放行 .pdf 扩展名，
+ * 非 PDF blob 会 403，探测失败即由调用方回退 base64 路径）。
+ *
+ * @returns 可用时返回原 URL，否则返回 null
+ */
+export async function probeBlobStreamUrl(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    if (!resp.ok && resp.status !== 206) return null;
+    // 丢弃 1 字节探测体
+    await resp.arrayBuffer().catch(() => undefined);
+    return url;
+  } catch {
+    return null;
+  }
 }

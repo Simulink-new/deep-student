@@ -26,7 +26,7 @@ import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { invoke } from '@tauri-apps/api/core';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { CustomScrollArea } from '@/components/custom-scroll-area';
-import { vfsFileApi } from '@/api/vfsFileApi';
+import { vfsFileApi, getBlobStreamUrl, fetchBlobStreamResponse } from '@/api/vfsFileApi';
 import { usePdfLoader } from '@/hooks/usePdfLoader';
 import { debugLog } from '@/debug-panel/debugMasterSwitch';
 import { classifyPdfError, PdfErrorType } from '@/features/pdf/types/pdfErrors';
@@ -340,6 +340,23 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
         }
 
         const loadFromVfs = async () => {
+          // ★ task-035/A4#1: 优先 pdfstream:// 协议流式取字节（本地转 base64 供下游解析，
+          //   免整文件 base64 过 IPC），无 blob / 协议拒绝时回退 base64 路径
+          const streamUrl = await getBlobStreamUrl(node.id);
+          if (streamUrl) {
+            const streamResp = await fetchBlobStreamResponse(streamUrl);
+            if (streamResp) {
+              const streamBytes = new Uint8Array(await streamResp.arrayBuffer());
+              if (!isMounted) return null;
+              if (streamBytes.byteLength > LARGE_FILE_THRESHOLD) {
+                setContentError(t('learningHub:file.previewTooLarge', '文件过大，无法预览'));
+                setContentLoading(false);
+                return null;
+              }
+              return uint8ArrayToBase64(streamBytes);
+            }
+          }
+
           const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
             attachmentId: node.id,
           });
@@ -1199,11 +1216,48 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       );
     }
 
+    // ★★ 状态 0.5：pending / error — 可恢复状态，提供手动重试入口
+    // pending：进程被杀后 recover_stuck_tasks 重置的残留状态（无任务在跑，进度条会永远卡住）
+    // error：上次处理失败（此前该状态不渲染任何状态栏，用户无处重试）
+    // 后端 vfs_ensure_ocr_pipeline 已按内存真实运行状态判定，点击即可自愈
+    if (processingStatus
+      && (processingStatus.stage === 'pending' || processingStatus.stage === 'error')
+      && !hasOcrContent
+    ) {
+      const isError = processingStatus.stage === 'error';
+      return (
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950/20 border-b border-blue-200 dark:border-blue-800/40">
+          <Scan className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+          <span className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed flex-1">
+            {isError
+              ? (processingStatus.error || t('textbook:ocr.failed', 'OCR 启动失败'))
+              : t('textbook:ocr.interrupted', '上次 OCR 处理被中断（如应用被关闭），点击重新继续')}
+          </span>
+          <button
+            type="button"
+            onClick={handleStartOcr}
+            disabled={isOcrTriggering}
+            className="px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 shrink-0"
+          >
+            {isOcrTriggering ? (
+              <span className="flex items-center gap-1">
+                <CircleNotch className="h-3 w-3 animate-spin" />
+                {t('textbook:ocr.starting', '启动中...')}
+              </span>
+            ) : (
+              t('textbook:ocr.retry', '重新 OCR 识别')
+            )}
+          </button>
+        </div>
+      );
+    }
+
     // ② 处理中 — 显示进度条
     if (processingStatus
       && processingStatus.stage !== 'completed'
       && processingStatus.stage !== 'completed_with_issues'
       && processingStatus.stage !== 'error'
+      && processingStatus.stage !== 'pending'
     ) {
       const hint = getProcessingHint(processingStatus);
       const progressPercent = Math.min(100, Math.max(0, processingStatus.percent));

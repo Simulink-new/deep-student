@@ -18,6 +18,7 @@ import { getErrorMessage } from '@/utils/errorUtils';
 import type { ContentViewProps } from '../UnifiedAppPanel';
 import { invoke } from '@tauri-apps/api/core';
 import { CustomScrollArea } from '@/components/custom-scroll-area';
+import { getBlobStreamUrl, probeBlobStreamUrl } from '@/api/vfsFileApi';
 
 import { LARGE_FILE_THRESHOLD } from '@/utils/base64FileUtils';
 import { formatFileSize } from './previewUtils';
@@ -84,6 +85,18 @@ const ImageContentView: React.FC<ContentViewProps> = ({
     setError(null);
     
     try {
+      // ★ task-035/A4#1: 优先 pdfstream:// 协议 URL 直连 <img>（流式、免 base64 IPC），
+      //   探测不可用（无 blob / 协议拒绝）时回退 base64 路径
+      const streamUrl = await getBlobStreamUrl(node.id);
+      if (streamUrl) {
+        const probedUrl = await probeBlobStreamUrl(streamUrl);
+        if (probedUrl) {
+          setImageData(probedUrl);
+          setLoadingStage('done');
+          return;
+        }
+      }
+
       // 调用后端获取附件内容
       const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
         attachmentId: node.id,
@@ -170,6 +183,10 @@ const ImageContentView: React.FC<ContentViewProps> = ({
     if (!imageData) return null;
     // 确保有正确的 data URL 前缀
     if (imageData.startsWith('data:')) {
+      return imageData;
+    }
+    // ★ pdfstream 协议 URL（Windows: http://pdfstream.localhost/...；macOS/Linux: pdfstream://localhost/...）直接使用
+    if (imageData.startsWith('http') || imageData.startsWith('pdfstream:')) {
       return imageData;
     }
     return `data:${mimeType};base64,${imageData}`;

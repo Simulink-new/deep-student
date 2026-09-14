@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../lib/utils';
+import { getBlobStreamUrl, probeBlobStreamUrl } from '@/api/vfsFileApi';
 import { CustomScrollArea } from './custom-scroll-area';
 import { NotionButton } from '@/components/ui/NotionButton';
 import { Card, CardContent, CardHeader } from './ui/shad/Card';
@@ -714,6 +715,15 @@ export const QuestionBankEditor: React.FC<QuestionBankEditorProps> = ({
         });
         const results = await Promise.allSettled(
           imagesToLoad.map(async (img) => {
+            // ★ task-035/A4#1: 优先 pdfstream:// 协议 URL 直连 <img>（流式、免 base64 IPC），
+            //   探测不可用（无 blob / 协议拒绝）时回退 base64 路径
+            const streamUrl = await getBlobStreamUrl(img.id);
+            if (streamUrl) {
+              const probedUrl = await probeBlobStreamUrl(streamUrl);
+              if (probedUrl) {
+                return { id: img.id, url: probedUrl };
+              }
+            }
             const result = await invoke<{ content: string | null; found: boolean }>('vfs_get_attachment_content', {
               attachmentId: img.id,
             });
