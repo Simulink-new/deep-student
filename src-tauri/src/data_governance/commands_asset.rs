@@ -148,16 +148,16 @@ pub async fn data_governance_restore_with_assets(
     manager.set_app_data_dir(app_data_dir.clone());
     manager.set_app_version(env!("CARGO_PKG_VERSION").to_string());
 
-    // 获取备份清单
-    let manifests = manager.list_backups().map_err(|e| {
-        error!("[data_governance] 获取备份列表失败: {}", e);
-        DataGovernanceError::Backup(format!("获取备份列表失败: {}", e))
-    })?;
-
-    let manifest = manifests
-        .iter()
-        .find(|m| m.backup_id == validated_backup_id)
-        .ok_or_else(|| DataGovernanceError::Backup(format!("备份不存在: {}", validated_backup_id)))?;
+    // ★ perf-audit A5-commands#5: 按 ID 直读单份 manifest(旧 list_backups 解析全部历史清单只为 find 一个)
+    let manifest = manager
+        .get_backup(&validated_backup_id)
+        .map_err(|e| {
+            error!("[data_governance] 读取备份清单失败: {}", e);
+            DataGovernanceError::Backup(format!("读取备份清单失败: {}", e))
+        })?
+        .ok_or_else(|| {
+            DataGovernanceError::Backup(format!("备份不存在: {}", validated_backup_id))
+        })?;
 
     let manifest_dir = backup_dir.join(&manifest.backup_id);
     ensure_existing_path_within_backup_dir(&manifest_dir, &backup_dir)?;
@@ -202,7 +202,7 @@ pub async fn data_governance_restore_with_assets(
     }
 
     // 执行恢复到非活跃插槽（不需要维护模式，不涉及活跃文件）
-    let result = manager.restore_with_assets_to_dir(manifest, restore_assets, &inactive_dir);
+    let result = manager.restore_with_assets_to_dir(&manifest, restore_assets, &inactive_dir);
     let duration_ms = start.elapsed().as_millis() as u64;
 
     match result {
@@ -290,21 +290,19 @@ pub async fn data_governance_verify_backup_with_assets(
         .acquire_owned()
         .await?;
 
-    // 获取备份列表并查找指定的备份
-    let manifests = manager
-        .list_backups()?;
-
-    let manifest = manifests
-        .iter()
-        .find(|m| m.backup_id == validated_backup_id)
-        .ok_or_else(|| DataGovernanceError::Backup(format!("备份不存在: {}", validated_backup_id)))?;
+    // ★ perf-audit A5-commands#5: 按 ID 直读单份 manifest
+    let manifest = manager
+        .get_backup(&validated_backup_id)?
+        .ok_or_else(|| {
+            DataGovernanceError::Backup(format!("备份不存在: {}", validated_backup_id))
+        })?;
 
     let manifest_dir = app_data_dir.join("backups").join(&manifest.backup_id);
     ensure_existing_path_within_backup_dir(&manifest_dir, &app_data_dir.join("backups"))?;
 
     // 验证备份
     let verify_result = manager
-        .verify_with_assets(manifest)?;
+        .verify_with_assets(&manifest)?;
 
     let has_assets = manifest.assets.is_some();
     let asset_file_count = manifest.assets.as_ref().map(|a| a.total_files).unwrap_or(0);

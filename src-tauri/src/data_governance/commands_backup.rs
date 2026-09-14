@@ -636,14 +636,10 @@ pub async fn data_governance_check_disk_space_for_restore(
 
     // 读取备份清单以获取备份大小
     let manager = BackupManager::new(backup_dir.clone());
-    let manifests = manager.list_backups().map_err(|e| {
-        error!("[data_governance] 获取备份列表失败: {}", e);
-        DataGovernanceError::from(format!("获取备份列表失败: {}", e))
-    })?;
-
-    let manifest = manifests
-        .iter()
-        .find(|m| m.backup_id == validated_backup_id)
+    // ★ A5-commands#5: 按 ID 直读单份 manifest
+    let manifest = manager
+        .get_backup(&validated_backup_id)
+        .map_err(|e| DataGovernanceError::from(format!("读取备份清单失败: {}", e)))?
         .ok_or_else(|| DataGovernanceError::from(format!("未找到备份: {}", validated_backup_id)))?;
 
     let db_size: u64 = manifest.files.iter().map(|f| f.size).sum();
@@ -709,21 +705,17 @@ pub async fn data_governance_verify_backup(
         .await
         .map_err(|e| DataGovernanceError::from(format!("获取全局备份锁失败: {}", e)))?;
 
-    // 获取备份列表并查找指定的备份
-    let manifests = manager
-        .list_backups()
-        .map_err(|e| DataGovernanceError::from(format!("获取备份列表失败: {}", e)))?;
-
-    let manifest = manifests
-        .iter()
-        .find(|m| m.backup_id == validated_backup_id)
+    // ★ A5-commands#5: 按 ID 直读单份 manifest
+    let manifest = manager
+        .get_backup(&validated_backup_id)
+        .map_err(|e| DataGovernanceError::from(format!("读取备份清单失败: {}", e)))?
         .ok_or_else(|| DataGovernanceError::from(format!("备份不存在: {}", validated_backup_id)))?;
 
     let manifest_dir = backup_dir.join(&manifest.backup_id);
     ensure_existing_path_within_backup_dir(&manifest_dir, &backup_dir)?;
 
     // 验证备份（包含资产）
-    let verify_result = manager.verify_with_assets(manifest);
+    let verify_result = manager.verify_with_assets(&manifest);
 
     let (is_valid, checksum_match, errors) = match verify_result {
         Ok(result) => {

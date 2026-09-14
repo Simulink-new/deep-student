@@ -154,21 +154,17 @@ async fn execute_restore_with_progress(
     manager.set_app_data_dir(app_data_dir.clone());
     manager.set_app_version(env!("CARGO_PKG_VERSION").to_string());
 
-    // 获取备份列表
-    let manifests = match manager.list_backups() {
-        Ok(m) => m,
-        Err(e) => {
-            error!("[data_governance] 获取备份列表失败: {}", e);
-            job_ctx.fail(format!("获取备份列表失败: {}", e));
+    // ★ A5-commands#5: 按 ID 直读单份 manifest(旧 list_backups 解析全部历史清单只为 find 一个;
+    // 顺带消除了下游对整份 manifest 的深拷贝)
+    let manifest = match manager.get_backup(&backup_id) {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            job_ctx.fail(format!("备份不存在: {}", backup_id));
             return;
         }
-    };
-
-    // 查找目标备份
-    let manifest = match manifests.iter().find(|m| m.backup_id == backup_id) {
-        Some(m) => m.clone(),
-        None => {
-            job_ctx.fail(format!("备份不存在: {}", backup_id));
+        Err(e) => {
+            error!("[data_governance] 读取备份清单失败: {}", e);
+            job_ctx.fail(format!("读取备份清单失败: {}", e));
             return;
         }
     };

@@ -2610,12 +2610,48 @@ impl BackupManager {
     }
 
     /// 列出所有备份
+    /// 按 ID 直读单个备份清单（perf-audit A5-commands#5）
+    ///
+    /// 恢复/验证/磁盘检查只需一个备份，旧路径 `list_backups()` 枚举解析全部历史
+    /// manifest（每份含全部资产明细，10 份×2 万条 ≈60MB JSON 读+解析）再 find。
+    pub fn get_backup(&self, backup_id: &str) -> Result<Option<BackupManifest>, BackupError> {
+        if !self.backup_dir.exists() {
+            return Ok(None);
+        }
+        // backup_id 参与路径拼接前做与 list_backups 一致性相同的防护:仅允许目录名单段
+        if backup_id.contains('/') || backup_id.contains('\\') || backup_id.contains("..") {
+            return Ok(None);
+        }
+        let manifest_path = self.backup_dir.join(backup_id).join(MANIFEST_FILENAME);
+        if !manifest_path.exists() {
+            return Ok(None);
+        }
+        match BackupManifest::load_from_file(&manifest_path) {
+            Ok(mut manifest) => {
+                // 与 list_backups 相同约束:以目录名为准
+                if manifest.backup_id != backup_id {
+                    warn!(
+                        "备份清单 backup_id 与目录名不一致，将以目录名为准: manifest.backup_id={}, dir={}",
+                        manifest.backup_id, backup_id
+                    );
+                    manifest.backup_id = backup_id.to_string();
+                }
+                Ok(Some(manifest))
+            }
+            Err(e) => {
+                warn!("无法加载备份清单 {:?}: {}", manifest_path, e);
+                Ok(None)
+            }
+        }
+    }
+
     pub fn list_backups(&self) -> Result<Vec<BackupManifest>, BackupError> {
         let mut backups = Vec::new();
 
         if !self.backup_dir.exists() {
             return Ok(backups);
         }
+        // 注: 列表用途建议后续拆 summary 档(A5#4);恢复/验证等单备份场景请用 get_backup(id) 直读
 
         for entry in fs::read_dir(&self.backup_dir)? {
             let entry = entry?;

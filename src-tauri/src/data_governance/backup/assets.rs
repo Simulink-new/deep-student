@@ -505,6 +505,31 @@ fn calculate_file_checksum(path: &Path) -> Result<String, AssetBackupError> {
     Ok(hex::encode(result))
 }
 
+/// 单遍复制并计算 sha256（perf-audit A5#6）
+///
+/// 旧实现 `fs::copy` + 对 dest 全量重读计算校验和 = 每资产 2× 磁盘读
+/// （2GB 资产目录一次备份多读 2GB）。现边写边算，读一次源文件完成两件事。
+fn copy_file_with_hash(src: &Path, dst: &Path) -> Result<(u64, String), AssetBackupError> {
+    use std::io::Write;
+
+    let mut reader = BufReader::new(File::open(src)?);
+    let mut writer = File::create(dst)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    let mut total = 0u64;
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+        writer.write_all(&buffer[..bytes_read])?;
+        total += bytes_read as u64;
+    }
+    writer.flush()?;
+    Ok((total, hex::encode(hasher.finalize())))
+}
+
 /// 获取文件修改时间
 fn get_file_modified_time(path: &Path) -> Option<String> {
     fs::metadata(path)
@@ -710,23 +735,25 @@ fn backup_directory_recursive(
                 fs::create_dir_all(parent)?;
             }
 
-            // 复制文件
-            fs::copy(&path, &dest_path).map_err(|e| AssetBackupError::CopyFailed {
-                src_path: path.to_string_lossy().to_string(),
-                dest_path: dest_path.to_string_lossy().to_string(),
-                message: e.to_string(),
-            })?;
-
-            // 计算校验和（如果需要）
+            // 复制文件 + 校验和（★ perf-audit A5#6: 单遍边写边算,免 dest 全量重读）
             let checksum = if config.compute_checksum {
-                match calculate_file_checksum(&dest_path) {
-                    Ok(hash) => Some(hash),
+                match copy_file_with_hash(&path, &dest_path) {
+                    Ok((_, hash)) => Some(hash),
                     Err(e) => {
-                        warn!("计算校验和失败 {:?}: {}", dest_path, e);
-                        None
+                        // 单遍模式下复制失败与哈希失败不可分,与旧 CopyFailed 语义一致:硬失败
+                        return Err(AssetBackupError::CopyFailed {
+                            src_path: path.to_string_lossy().to_string(),
+                            dest_path: dest_path.to_string_lossy().to_string(),
+                            message: e.to_string(),
+                        });
                     }
                 }
             } else {
+                fs::copy(&path, &dest_path).map_err(|e| AssetBackupError::CopyFailed {
+                    src_path: path.to_string_lossy().to_string(),
+                    dest_path: dest_path.to_string_lossy().to_string(),
+                    message: e.to_string(),
+                })?;
                 None
             };
 

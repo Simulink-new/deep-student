@@ -267,15 +267,36 @@ pub fn export_backup_to_zip(
             total_size += file_size;
             file_count += 1;
 
-            // 计算校验和（如果需要）
-            if options.include_checksums {
-                let checksum = calculate_file_sha256(path)?;
-                checksums.push((relative_path_str.clone(), checksum));
-            }
+            // ★ perf-audit A5#9: 哈希与压缩共享一次读——旧实现先整文件读一遍算 sha256,
+            // 再重新读一遍写 ZIP(2× 磁盘读);现分块循环边算边压
+            let mut hasher = if options.include_checksums {
+                Some(sha2::Sha256::new())
+            } else {
+                None
+            };
 
             // 写入 ZIP（流式，避免大文件 read_to_end 导致内存峰值）
             zip_writer.start_file(&relative_path_str, file_options)?;
-            std::io::copy(&mut file, &mut zip_writer)?;
+            {
+                use std::io::{Read, Write};
+                let mut buffer = vec![0u8; 256 * 1024];
+                loop {
+                    let bytes_read = file.read(&mut buffer)?;
+                    if bytes_read == 0 {
+                        break;
+                    }
+                    if let Some(ref mut h) = hasher {
+                        sha2::Digest::update(h, &buffer[..bytes_read]);
+                    }
+                    zip_writer.write_all(&buffer[..bytes_read])?;
+                }
+            }
+            if let Some(h) = hasher {
+                checksums.push((
+                    relative_path_str.clone(),
+                    hex::encode(sha2::Digest::finalize(h)),
+                ));
+            }
         }
     }
 
