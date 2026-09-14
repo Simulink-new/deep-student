@@ -189,27 +189,38 @@ export function useQuestionBankSession({
 
     const allQuestions = [...firstPage.questions];
     let page = firstPage.page;
-    let hasMore: boolean = firstPage.has_more;
 
-    while (hasMore) {
-      const nextPage = page + 1;
-      const result = await invoke<QuestionListResult>('qbank_list_questions', {
-        request: { exam_id: currentExamId, filters: {}, page: nextPage, page_size: PAGE_SIZE },
-      });
-
-      if (loadRequestIdRef.current !== requestId || sessionEpochRef.current !== epoch || examIdRef.current !== currentExamId) {
-        return {
-          ...result,
-          questions: allQuestions,
-          total: result.total,
-          page: nextPage,
-          has_more: result.has_more,
-        };
+    // ★ perf-audit B1/task-038: 串行 while 分页改并行——首页已给出 total,
+    // 剩余页 Promise.all 一次并发拉取(旧实现 ceil(N/50) 次串行 IPC 往返)
+    const totalPages = Math.max(1, Math.ceil(firstPage.total / PAGE_SIZE));
+    if (firstPage.page < totalPages) {
+      const remainingPages: number[] = [];
+      for (let p = firstPage.page + 1; p <= totalPages; p++) {
+        remainingPages.push(p);
       }
+      const results = await Promise.all(
+        remainingPages.map((p) =>
+          invoke<QuestionListResult>('qbank_list_questions', {
+            request: { exam_id: currentExamId, filters: {}, page: p, page_size: PAGE_SIZE },
+          }).catch(() => null)
+        )
+      );
+      for (const result of results) {
+        if (result) {
+          allQuestions.push(...result.questions);
+          page = Math.max(page, result.page);
+        }
+      }
+    }
 
-      allQuestions.push(...result.questions);
-      page = result.page;
-      hasMore = result.has_more;
+    if (loadRequestIdRef.current !== requestId || sessionEpochRef.current !== epoch || examIdRef.current !== currentExamId) {
+      return {
+        ...firstPage,
+        questions: allQuestions,
+        total: firstPage.total,
+        page,
+        has_more: false,
+      };
     }
 
     return {

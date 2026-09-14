@@ -11,31 +11,7 @@ import { t } from '../utils/i18n';
 // ============================================================================
 // 类型定义
 // ============================================================================
-
-/**
- * 后端会话数据结构
- * 注意：后端使用 camelCase 序列化
- */
-interface ChatSession {
-  id: string;
-  mode: string;
-  title?: string;
-  description?: string;
-  persistStatus: 'active' | 'archived' | 'deleted';
-  createdAt: string;
-  updatedAt: string;
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * 后端消息摘要数据
- */
-interface MessageSummary {
-  total_messages: number;
-  user_messages: number;
-  assistant_messages: number;
-  sessions_with_messages: number;
-}
+// (ChatSession/MessageSummary 接口已删——统计聚合下推 SQL 后不再拉会话/消息明细, task-038)
 
 /**
  * 会话活动数据（按天统计）
@@ -137,108 +113,63 @@ export function useChatV2Stats(autoRefresh = false, refreshInterval = 30000): Ch
 
   const loadStats = useCallback(async () => {
     try {
-      // 获取所有会话
-      const [activeSessions, archivedSessions] = await Promise.all([
-        invoke<ChatSession[]>('chat_v2_list_sessions', {
-          status: 'active',
-          limit: 1000,
-        }),
-        invoke<ChatSession[]>('chat_v2_list_sessions', {
-          status: 'archived',
-          limit: 1000,
-        }).catch(() => [] as ChatSession[]),
-      ]);
+      // ★ perf-audit B1/task-038: 聚合全部下推 SQL（chat_v2_get_session_stats）
+      // 旧路径每次拉 2×1000 全量会话到前端内存聚合（~0.6MB IPC），
+      // 且依赖的 chat_v2_get_message_summary 为幽灵命令（后端不存在，invoke 必失败走估算）
+      const s = await invoke<{
+        totalSessions: number;
+        activeSessions: number;
+        archivedSessions: number;
+        recentSessions7d: number;
+        modeDistribution: Array<{ mode: string; count: number }>;
+        dailyActivity7d: Array<{ date: string; sessions: number }>;
+        hourlyDistribution: number[];
+        messageSummary: { totalMessages: number; userMessages: number; assistantMessages: number };
+      }>('chat_v2_get_session_stats');
 
-      const allSessions = [...activeSessions, ...archivedSessions];
       const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const modeDistribution: ModeDistribution[] = (s.modeDistribution || [])
+        .map((m) => ({ mode: m.mode, count: m.count, label: getModeLabel(m.mode) }));
 
-      // 计算近期会话
-      const recentSessions = allSessions.filter(
-        (s) => new Date(s.createdAt) > sevenDaysAgo
-      ).length;
-
-      // 计算模式分布
-      const modeCount: Record<string, number> = {};
-      allSessions.forEach((s) => {
-        const mode = s.mode || 'default';
-        modeCount[mode] = (modeCount[mode] || 0) + 1;
-      });
-
-      const modeDistribution: ModeDistribution[] = Object.entries(modeCount)
-        .map(([mode, count]) => ({
-          mode,
-          count,
-          label: getModeLabel(mode),
-        }))
-        .sort((a, b) => b.count - a.count);
-
-      // 计算每日活动（最近7天）
+      // 每日活动: SQL 稀疏结果填充 7 天脚手架(展示语义不变)
+      const dailyMap = new Map((s.dailyActivity7d || []).map((d) => [d.date, d.sessions]));
       const dailyActivity: DailyActivity[] = [];
-
       for (let i = 6; i >= 0; i--) {
         const date = new Date(now);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-
-        const sessionsOnDay = allSessions.filter((s) => {
-          const sessionDate = new Date(s.createdAt).toISOString().split('T')[0];
-          return sessionDate === dateStr;
-        }).length;
-
         dailyActivity.push({
           date: dateStr,
           displayDate: `${t('weekdays.prefix', { defaultValue: '周' })}${getWeekdayLabel(date.getDay())}`,
-          sessions: sessionsOnDay,
-          messages: 0, // 消息数需要额外查询
+          sessions: dailyMap.get(dateStr) ?? 0,
+          messages: 0, // 消息数按天统计仍不可用(与旧行为一致)
         });
       }
 
-      // 计算小时分布
-      const hourlyCount: number[] = new Array(24).fill(0);
-      allSessions.forEach((s) => {
-        const hour = new Date(s.createdAt).getHours();
-        hourlyCount[hour]++;
-      });
-
-      const hourlyDistribution: HourlyDistribution[] = hourlyCount.map(
+      const hourlyDistribution: HourlyDistribution[] = (s.hourlyDistribution || new Array(24).fill(0)).map(
         (count, hour) => ({ hour, count })
       );
 
-      // 尝试获取消息统计
-      let totalMessages = 0;
-      let userMessages = 0;
-      let assistantMessages = 0;
-
-      try {
-        const messageSummary = await invoke<MessageSummary>('chat_v2_get_message_summary');
-        totalMessages = messageSummary.total_messages;
-        userMessages = messageSummary.user_messages;
-        assistantMessages = messageSummary.assistant_messages;
-      } catch (e: unknown) {
-        // 消息统计可能不可用，使用估算
-        totalMessages = allSessions.length * 10; // 估算每会话10条消息
-        userMessages = Math.floor(totalMessages / 2);
-        assistantMessages = totalMessages - userMessages;
-      }
+      const { totalMessages, userMessages, assistantMessages } = s.messageSummary;
+      const recentSessions = s.recentSessions7d;
 
       // 计算平均值
       const avgMessagesPerSession =
-        allSessions.length > 0
-          ? Math.round((totalMessages / allSessions.length) * 10) / 10
+        s.totalSessions > 0
+          ? Math.round((totalMessages / s.totalSessions) * 10) / 10
           : 0;
 
       const avgSessionsPerDay = Math.round((recentSessions / 7) * 10) / 10;
 
       setStats({
-        totalSessions: allSessions.length,
-        activeSessions: activeSessions.length,
-        archivedSessions: archivedSessions.length,
+        totalSessions: s.totalSessions,
+        activeSessions: s.activeSessions,
+        archivedSessions: s.archivedSessions,
         totalMessages,
         userMessages,
         assistantMessages,
         recentSessions,
-        recentMessages: Math.floor(totalMessages * 0.3), // 估算
+        recentMessages: Math.floor(totalMessages * 0.3), // 估算(与旧行为一致)
         modeDistribution,
         dailyActivity,
         hourlyDistribution,

@@ -281,6 +281,137 @@ pub async fn chat_v2_save_session(
     Ok(())
 }
 
+/// 会话统计 SQL 下推（perf-audit B1/task-038）
+///
+/// 前端旧路径每次统计页拉 2×1000 全量会话到内存聚合（~0.6MB IPC），
+/// 且其依赖的 chat_v2_get_message_summary 为幽灵命令（后端不存在，invoke 必失败走估算）。
+/// 现全部聚合在 SQLite 端完成，只回传 ~2KB 统计结果。
+#[tauri::command]
+pub async fn chat_v2_get_session_stats(
+    db: State<'_, std::sync::Arc<ChatV2Database>>,
+) -> Result<serde_json::Value, String> {
+    use rusqlite::params;
+    let conn = db.get_conn_safe().map_err(|e| e.to_string())?;
+    // 与 list_sessions 相同的可见性过滤（排除 agent Worker 与隐藏草稿）
+    const VISIBLE: &str = " FROM chat_v2_sessions WHERE mode != 'agent' AND COALESCE(json_extract(metadata_json, '$.chatV2Draft.hidden'), 0) != 1";
+
+    let total: i64 = conn
+        .query_row(&format!("SELECT COUNT(*){VISIBLE}"), [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let active: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*){VISIBLE} AND persist_status = 'active'"),
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let archived: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*){VISIBLE} AND persist_status = 'archived'"),
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    // created_at 为 rfc3339 文本，字典序比较即可
+    let cutoff7 = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
+    let recent7: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*){VISIBLE} AND created_at >= ?1"),
+            params![cutoff7],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut modes: Vec<serde_json::Value> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT COALESCE(NULLIF(mode,''),'default') AS m, COUNT(*) AS c{VISIBLE} GROUP BY m ORDER BY c DESC"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            modes.push(serde_json::json!({ "mode": row.0, "count": row.1 }));
+        }
+    }
+
+    let mut daily: Vec<serde_json::Value> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT substr(created_at,1,10) AS d, COUNT(*) AS c{VISIBLE} AND created_at >= ?1 GROUP BY d ORDER BY d"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![cutoff7], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            daily.push(serde_json::json!({ "date": row.0, "sessions": row.1 }));
+        }
+    }
+
+    let mut hourly = vec![0i64; 24];
+    {
+        // 与旧前端 getHours() 对齐: 本地时区小时(每日分布保持旧 UTC 日期口径)
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT CAST(strftime('%H', created_at, 'localtime') AS INTEGER) AS h, COUNT(*) AS c{VISIBLE} GROUP BY h"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            let (h, c) = row;
+            if (0..24).contains(&h) {
+                hourly[h as usize] = c;
+            }
+        }
+    }
+
+    // 消息计数（收编幽灵命令 chat_v2_get_message_summary 的职责）
+    let mut msg_total = 0i64;
+    let mut msg_user = 0i64;
+    let mut msg_assistant = 0i64;
+    {
+        let mut stmt = conn
+            .prepare("SELECT role, COUNT(*) FROM chat_v2_messages GROUP BY role")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            match row.0.as_str() {
+                "user" => msg_user = row.1,
+                "assistant" => msg_assistant = row.1,
+                _ => {}
+            }
+            msg_total += row.1;
+        }
+    }
+
+    Ok(serde_json::json!({
+        "totalSessions": total,
+        "activeSessions": active,
+        "archivedSessions": archived,
+        "recentSessions7d": recent7,
+        "modeDistribution": modes,
+        "dailyActivity7d": daily,
+        "hourlyDistribution": hourly,
+        "messageSummary": {
+            "totalMessages": msg_total,
+            "userMessages": msg_user,
+            "assistantMessages": msg_assistant
+        }
+    }))
+}
+
+
 /// 列出会话
 ///
 /// 获取会话列表，支持按状态过滤和限制数量。

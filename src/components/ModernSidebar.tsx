@@ -515,6 +515,19 @@ export const ModernSidebar: React.FC<ModernSidebarProps> = ({
     syncActiveSession();
   }, [loadSidebarData, syncActiveSession]);
 
+  // ★ perf-audit B6#3: focus 全刷节流——旧实现每次窗口 focus 触发 3 invoke 全刷
+  // (含 groupId='*' limit:10000 全量已分组会话,与 limit=8 查询数据重叠);
+  // 30s 内重复 focus 只同步当前会话高亮,数据刷新交给 sessions/groups-updated 事件
+  const lastFocusRefreshAtRef = useRef(0);
+  const handleFocusRefresh = useCallback(() => {
+    syncActiveSession();
+    const now = Date.now();
+    if (now - lastFocusRefreshAtRef.current >= 30_000) {
+      lastFocusRefreshAtRef.current = now;
+      void loadSidebarData();
+    }
+  }, [loadSidebarData, syncActiveSession]);
+
   useEventRegistry([
     {
       target: 'window',
@@ -534,9 +547,9 @@ export const ModernSidebar: React.FC<ModernSidebarProps> = ({
     {
       target: 'window',
       type: 'focus',
-      listener: refreshSessions,
+      listener: handleFocusRefresh,
     },
-  ], [refreshSessions, syncActiveSession]);
+  ], [refreshSessions, syncActiveSession, handleFocusRefresh]);
 
   useEffect(() => {
     if (draggedRecentGroupId === null) {

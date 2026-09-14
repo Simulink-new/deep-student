@@ -372,7 +372,9 @@ export const useHpiasStore = create<HpiasStore>()(
               break;
             case 'synthesis_updated':
               set(state => {
-                const text = (state.synthesis || '') + ((e as any).synthesis || '');
+                // B1 修复: 后端 ResearchEvent.SynthesisUpdated 载荷为 markdown(本轮综合快照)——
+                // 旧实现每事件全量拼接 O(n²),且读旧键 .synthesis 恒为空串(no-op);改为整体替换
+                const text = String((e as any).markdown ?? (e as any).synthesis ?? '');
                 const rno = (e as any).round as number;
                 const rv = { ...state.roundsView };
                 rv[rno] = rv[rno] || { round_no: rno, status: 'streaming', created_at: new Date().toISOString() };
