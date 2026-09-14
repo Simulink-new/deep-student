@@ -1,7 +1,6 @@
 // gemini_adapter.rs
 // 纯库模块：Google/Gemini API适配器，提供请求构建与流式解析能力
 
-use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -9,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::utils::fetch::fetch_binary_with_cache;
+use crate::utils::fetch::fetch_base64_with_cache;
 
 // ==================== 公共错误类型 ====================
 
@@ -1872,10 +1871,12 @@ fn image_url_to_inline_data(image_url: &OpenAIImageUrl) -> Option<GeminiInlineDa
     }
 
     if image_url.url.starts_with("http://") || image_url.url.starts_with("https://") {
-        if let Some((bytes, mime_hint)) = fetch_binary_with_cache(&image_url.url) {
-            let mime_type = mime_hint.unwrap_or_else(|| "application/octet-stream".to_string());
-            let data = general_purpose::STANDARD.encode(bytes);
-            return Some(GeminiInlineData { mime_type, data });
+        // ★ A9#1: 缓存命中零编码零深拷贝(与 providers/mod.rs 同型改造)
+        if let Some((data, mime)) = fetch_base64_with_cache(&image_url.url) {
+            return Some(GeminiInlineData {
+                mime_type: mime,
+                data: (*data).clone(),
+            });
         }
     }
 

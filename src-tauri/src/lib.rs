@@ -2096,7 +2096,7 @@ fn build_app_state(
 #[cfg(feature = "mcp")]
 async fn init_mcp_client(
     database: Arc<crate::database::Database>,
-    app_handle: Option<tauri::AppHandle>,
+    _app_handle: Option<tauri::AppHandle>, // A11#10: mcp_tools_changed emit 删除后无使用
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 从数据库读取 MCP 配置
     let mcp_config = load_mcp_config_from_db(&database).await?;

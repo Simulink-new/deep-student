@@ -7,6 +7,12 @@ use crate::cloud_storage::CloudStorage;
 use crate::crypto::backup_crypto;
 use std::collections::{HashMap, HashSet};
 
+/// ★ perf-audit A5#4: 资产哈希进程内备忘 key -> (sha256, size, mtime)
+/// 同会话内重复同步零变更时跳过全量 sha256(2GB 资产目录旧实现每次同步全量哈希)
+static ASSET_HASH_MEMO: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, (String, u64, std::time::SystemTime)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
 /// 生成文件级同步的字节进度回调（经全局 sink 上报到前端，未挂 sink 时为 no-op）。
 /// 用于 put_file/get_file 的 progress 参数，消除大文件传输期间进度条静止的问题。
 fn file_progress_callback(
@@ -1921,13 +1927,65 @@ impl SyncManager {
                 .to_string_lossy()
                 .replace('\\', "/");
             let key = format!("{}/{}/{}", root_alias, top_dir, rel);
-            let sha256 = backup_common::calculate_file_hash(&path).map_err(|e| {
-                SyncError::Database(format!("计算资产文件校验和失败 {:?}: {}", path, e))
-            })?;
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
+            // ★ perf-audit A5#4: mtime+size 快路径——同会话内重复同步时零变更文件
+            // 跳过全量 sha256(旧实现每次同步全量哈希 2GB 资产;跨重启持久化需清单加
+            // mtime 字段、涉远端格式兼容,留专项)。metadata 复用 DirEntry 自带,免二次 stat。
+            let metadata = entry.metadata().ok();
+            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime = metadata
+                .as_ref()
+                .and_then(|m| m.modified().ok());
+            let sha256 = {
+                let memo = ASSET_HASH_MEMO
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if let (Some(mt), Some((m_sha, m_size, m_mtime))) =
+                    (mtime, memo.get(&key))
+                {
+                    if *m_size == size && *m_mtime == mt {
+                        m_sha.clone()
+                    } else {
+                        Self::hash_and_memo(&path, &key, size, Some(mt))
+                            .map_err(|e| {
+                                SyncError::Database(format!(
+                                    "计算资产文件校验和失败 {:?}: {}",
+                                    path, e
+                                ))
+                            })?
+                    }
+                } else {
+                    Self::hash_and_memo(&path, &key, size, mtime)
+                        .map_err(|e| {
+                            SyncError::Database(format!(
+                                "计算资产文件校验和失败 {:?}: {}",
+                                path, e
+                            ))
+                        })?
+                }
+            };
             out.insert(key, (path, sha256, size));
         }
         Ok(())
+    }
+
+    /// 哈希并写入备忘(在 memo 锁外计算,避免持锁做重 IO)
+    fn hash_and_memo(
+        path: &std::path::Path,
+        key: &str,
+        size: u64,
+        mtime: Option<std::time::SystemTime>,
+    ) -> Result<String, SyncError> {
+        let sha = backup_common::calculate_file_hash(path)
+            .map_err(|e| SyncError::Database(format!("计算资产文件校验和失败: {}", e)))?;
+        ASSET_HASH_MEMO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                key.to_string(),
+                (sha.clone(), size, mtime.unwrap_or(std::time::SystemTime::UNIX_EPOCH)),
+            );
+        Ok(sha)
     }
 
     fn asset_local_path_from_key(

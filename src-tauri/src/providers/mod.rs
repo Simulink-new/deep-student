@@ -1,5 +1,4 @@
-use crate::utils::fetch::fetch_binary_with_cache;
-use base64::{engine::general_purpose, Engine as _};
+use crate::utils::fetch::fetch_base64_with_cache;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -1710,10 +1709,10 @@ fn create_base64_payload(url: &str) -> Option<(String, String)> {
     }
 
     if url.starts_with("http://") || url.starts_with("https://") {
-        if let Some((bytes, mime_hint)) = fetch_binary_with_cache(url) {
-            let mime = mime_hint.unwrap_or_else(|| "application/octet-stream".to_string());
-            let data = general_purpose::STANDARD.encode(bytes);
-            return Some((mime, data));
+        // ★ A9#1: 缓存命中路径零编码零深拷贝(Arc 共享已编码 base64);
+        // 旧实现每次 clone Vec + 重新 base64 编码,含图对话每轮 ~18MB 瞬时分配
+        if let Some((data, mime)) = fetch_base64_with_cache(url) {
+            return Some((mime, (*data).clone()));
         }
     }
 
