@@ -332,6 +332,10 @@ impl AssetBackupConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetBackupResult {
     /// 备份的文件列表
+    /// ★ perf-audit A5#4/task-044: 新备份不再内联进 manifest.json(逐条 ~300B×2 万条
+    /// 使清单达 5-8MB 且每次 list_backups 全量解析),改存同目录 assets.ndjson;
+    /// 旧清单内联格式读取兼容(serde default)。空 Vec 跳过序列化。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<BackedUpAsset>,
     /// 总文件数
     pub total_files: usize,

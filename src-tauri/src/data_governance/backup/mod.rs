@@ -165,7 +165,42 @@ impl BackupManifest {
     /// 2. 同步到磁盘
     /// 3. 原子重命名为目标文件
     pub fn save_to_file(&self, path: &Path) -> Result<(), BackupError> {
-        let json = serde_json::to_string_pretty(self)
+        // ★ A5#4/task-044: 资产明细拆分 assets.ndjson,manifest.json 只留摘要
+        // (清单从 5-8MB 降到 KB 级;写序: ndjson 先落盘,manifest 原子重命名作提交点)
+        let asset_files: Vec<assets::BackedUpAsset> = self
+            .assets
+            .as_ref()
+            .map(|a| a.files.clone())
+            .unwrap_or_default();
+
+        if !asset_files.is_empty() {
+            let ndjson_path = path
+                .parent()
+                .map(|d| d.join("assets.ndjson"))
+                .ok_or_else(|| BackupError::Manifest("清单路径缺少父目录".to_string()))?;
+            let mut body = String::with_capacity(asset_files.len() * 320);
+            for asset in &asset_files {
+                let line = serde_json::to_string(asset)
+                    .map_err(|e| BackupError::Manifest(format!("序列化资产条目失败: {}", e)))?;
+                body.push_str(&line);
+                body.push('\n');
+            }
+            let ndjson_tmp = ndjson_path.with_extension("ndjson.tmp");
+            let mut nf = File::create(&ndjson_tmp)?;
+            nf.write_all(body.as_bytes())?;
+            nf.sync_all()?;
+            fs::rename(&ndjson_tmp, &ndjson_path).map_err(|e| {
+                let _ = fs::remove_file(&ndjson_tmp);
+                BackupError::Io(e)
+            })?;
+        }
+
+        // 摘要版清单(assets.files 已 skip_serializing_if 空)
+        let mut summary = self.clone();
+        if let Some(ref mut a) = summary.assets {
+            a.files = Vec::new();
+        }
+        let json = serde_json::to_string_pretty(&summary)
             .map_err(|e| BackupError::Manifest(format!("序列化清单失败: {}", e)))?;
 
         // 1. 写入临时文件
@@ -189,8 +224,38 @@ impl BackupManifest {
     /// 从文件加载清单
     pub fn load_from_file(path: &Path) -> Result<Self, BackupError> {
         let content = fs::read_to_string(path)?;
-        serde_json::from_str(&content)
-            .map_err(|e| BackupError::Manifest(format!("解析清单失败: {}", e)))
+        let mut manifest: BackupManifest = serde_json::from_str(&content)
+            .map_err(|e| BackupError::Manifest(format!("解析清单失败: {}", e)))?;
+
+        // ★ A5#4/task-044: 新格式——资产明细在同目录 assets.ndjson(逐行 JSON);
+        // 旧格式(files 内联)不受影响。仅在有资产段且明细为空时尝试拼接。
+        if let Some(ref mut a) = manifest.assets {
+            if a.files.is_empty() {
+                if let Some(ndjson) = path.parent().map(|d| d.join("assets.ndjson")) {
+                    if ndjson.exists() {
+                        let body = fs::read_to_string(&ndjson)?;
+                        let mut files = Vec::new();
+                        for (idx, line) in body.lines().enumerate() {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            let asset: assets::BackedUpAsset = serde_json::from_str(line)
+                                .map_err(|e| {
+                                    BackupError::Manifest(format!(
+                                        "解析资产明细第 {} 行失败: {}",
+                                        idx + 1,
+                                        e
+                                    ))
+                                })?;
+                            files.push(asset);
+                        }
+                        a.files = files;
+                    }
+                }
+            }
+        }
+        Ok(manifest)
     }
 }
 
