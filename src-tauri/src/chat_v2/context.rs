@@ -212,6 +212,13 @@ impl PipelineContext {
         self.tool_results_to_messages_impl(&self.tool_results)
     }
 
+    /// ★ perf-audit A1#1/task-042: 将 [from..] 区间的新工具结果转换为消息,
+    /// 供工具轮循环增量追加(旧路径每轮全量重转所有结果)
+    pub(crate) fn tool_results_to_messages_range(&self, from: usize) -> Vec<LegacyChatMessage> {
+        let from = from.min(self.tool_results.len());
+        self.tool_results_to_messages_impl(&self.tool_results[from..])
+    }
+
     /// 将工具调用结果转换为 LLM 消息格式
     ///
     /// 按照 OpenAI/DeepSeek 工具调用协议，返回正确顺序的消息：

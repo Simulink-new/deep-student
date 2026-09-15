@@ -29,7 +29,7 @@ impl ChatV2Pipeline {
         ctx: &mut PipelineContext,
         emitter: Arc<ChatV2EventEmitter>,
         system_prompt: &str,
-        recursion_depth: u32,
+        initial_recursion_depth: u32,
     ) -> ChatV2Result<()> {
         // 检查递归深度限制
         // 🔧 配置化：使用用户设置的限制值，默认 MAX_TOOL_RECURSION (30)
@@ -38,6 +38,23 @@ impl ChatV2Pipeline {
             .max_tool_recursion
             .unwrap_or(MAX_TOOL_RECURSION)
             .clamp(1, 100); // 限制范围 1-100
+
+        // ★ perf-audit A1#1/task-042: 消息前缀一次构建,工具轮循环内增量维护。
+        // 旧实现每轮(递归)全量 clone chat_history + 全量重转所有工具结果:
+        // O(R×H) 深拷贝 + O(R²·T) 重转换;现结构 [历史前缀, (工作区注入增量),
+        // 瞬态技能(每轮刷新), 当前用户消息, 工具结果(按新增追加)] 跨轮保留。
+        let mut messages = ctx.chat_history.clone();
+        let mut prefix_len = messages.len();
+        if ctx.options.is_continue != Some(true) {
+            // 🔴 关键修复(语义保留): 添加当前用户消息,LLM 需看到当前问题
+            let current_user_message = self.build_current_user_message(ctx);
+            messages.push(current_user_message);
+        }
+        let mut injected_skill_count = 0usize;
+        let mut tool_results_mark = 0usize;
+        let mut recursion_depth = initial_recursion_depth;
+
+        loop {
 
         // 🔒 安全修复：心跳机制仅信任白名单内部工具
         // 外部/MCP 工具不能通过返回 continue_execution 绕过递归限制
@@ -207,9 +224,16 @@ impl ChatV2Pipeline {
         ctx.current_adapter = Some(adapter.clone());
 
         // ============================================================
-        // 构建聊天历史（真实历史 + 瞬态技能消息 + 当前用户消息 + 当前轮工具结果）
+        // 每轮消息增量同步（前缀已构建,见函数头 A1#1/task-042）
         // ============================================================
-        let mut messages = ctx.chat_history.clone();
+        // 1) 工作区注入增量: 检测点 2(工具执行后)会把 inbox 消息 push 进 ctx.chat_history,
+        //    轮间拼接到前缀尾部(原语义: 下一轮 clone 时自然带入,顺序 [历史(含注入), skills, user])
+        if ctx.chat_history.len() > prefix_len {
+            let injected: Vec<_> = ctx.chat_history[prefix_len..].to_vec();
+            let inject_count = injected.len();
+            messages.splice(prefix_len..prefix_len, injected);
+            prefix_len += inject_count;
+        }
 
         let skill_state = self.load_effective_session_skill_state(&ctx.session_id, &ctx.options);
         let empty_skill_contents = std::collections::HashMap::new();
@@ -228,12 +252,15 @@ impl ChatV2Pipeline {
                 .map(|v| (v as usize).min(DEFAULT_MAX_HISTORY_TOKENS)),
         );
         let skill_audit = transient_skill_messages.audit.clone();
-        let injected_skill_count = skill_audit.injected_skill_ids.len();
         let round_id = format!("tool-round-{}", recursion_depth);
-        let insertion_index = messages.len();
+        // 2) 瞬态技能段刷新: 先清上一轮注入段再插入当前段(load_skills 可中途改变技能态)
+        if injected_skill_count > 0 {
+            messages.drain(prefix_len..prefix_len + injected_skill_count);
+        }
+        injected_skill_count = transient_skill_messages.messages.len();
         insert_transient_skill_messages(
             &mut messages,
-            insertion_index,
+            prefix_len,
             transient_skill_messages.messages,
         );
         emitter.emit_skill_injection_audit(
@@ -250,12 +277,7 @@ impl ChatV2Pipeline {
             Some(round_id.as_str()),
         );
 
-        if ctx.options.is_continue != Some(true) {
-            // 🔴 关键修复：添加当前用户消息到消息列表
-            // 之前这里缺失，导致 LLM 看不到用户当前发送的问题
-            let current_user_message = self.build_current_user_message(ctx);
-            messages.push(current_user_message);
-        }
+        // (当前用户消息已提升至函数头一次性构建——is_continue 轮间不变)
         log::debug!(
             "[ChatV2::pipeline] Built LLM messages: history={}, transient_skills={}, current_user={}, content_len={}, has_images={}, has_docs={}",
             ctx.chat_history.len(),
@@ -266,18 +288,18 @@ impl ChatV2Pipeline {
             ctx.attachments.iter().any(|a| !a.mime_type.starts_with("image/"))
         );
 
-        // 如果有工具结果（递归调用时），将**所有**工具结果添加到消息历史
-        // 🔧 关键修复：由于 messages 每次从 chat_history.clone() 重建，
-        // 之前只添加"新"工具结果会导致历史丢失。现在改为每次添加所有工具结果，
-        // 确保 LLM 能看到完整的工具调用历史（符合 Anthropic 最佳实践：
-        // "Messages API 是无状态的，必须每次发送完整对话历史"）
-        if !ctx.tool_results.is_empty() {
-            let tool_messages = ctx.all_tool_results_to_messages();
+        // 如果有工具结果,按**新增**追加(messages 跨轮保留,已追加的不重复)
+        // ★ A1#1/task-042: 旧实现每轮全量重转所有工具结果(重建时代的必然);
+        // 现 messages 在轮间保留,只追加本轮执行产生的新结果,
+        // LLM 仍能看到完整工具调用历史(消息内容不变,仅构建方式增量)
+        if ctx.tool_results.len() > tool_results_mark {
+            let tool_messages = ctx.tool_results_to_messages_range(tool_results_mark);
             let tool_count = tool_messages.len();
             messages.extend(tool_messages);
+            tool_results_mark = ctx.tool_results.len();
 
             log::debug!(
-                "[ChatV2::pipeline] Added ALL {} tool result messages to chat history (tool_results count: {})",
+                "[ChatV2::pipeline] Appended {} new tool result messages (total tool_results: {})",
                 tool_count,
                 ctx.tool_results.len()
             );
@@ -1278,19 +1300,15 @@ impl ChatV2Pipeline {
                 return Ok(());
             }
 
-            // 递归调用 LLM 处理工具结果
+            // 递归改迭代(A1#1/task-042): 原尾递归转循环 continue——
+            // messages 跨轮保留,下一轮仅增量同步(工作区注入/技能段/新工具结果)
             log::debug!(
-                "[ChatV2::pipeline] Recursively calling LLM to process tool results, depth={}->{}",
+                "[ChatV2::pipeline] Continuing tool loop to process tool results, depth={}->{}",
                 recursion_depth,
                 recursion_depth + 1
             );
-            return Box::pin(self.execute_with_tools(
-                ctx,
-                emitter,
-                system_prompt,
-                recursion_depth + 1,
-            ))
-            .await;
+            recursion_depth += 1;
+            continue;
         }
 
         // ============================================================
@@ -1315,7 +1333,8 @@ impl ChatV2Pipeline {
             ctx.interleaved_block_ids.len()
         );
 
-        Ok(())
+        return Ok(());
+        } // loop (A1#1/task-042 工具轮迭代)
     }
 
     /// 并行执行多个工具调用
