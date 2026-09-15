@@ -69,6 +69,22 @@ impl AutoExtractFrequency {
         }
     }
 
+    /// ★ perf-audit A8#3: 写计数版刷新条件。
+    /// 旧 `total % 5 == 0` 在总数恰停在 5 的倍数且不变时(UPDATE 不改总数)，
+    /// 每次写都触发全分类刷新 = 每分类 1 次 LLM 摘要调用(7 分类 ≈ 每写 7 次 LLM 的调用风暴)。
+    /// 改为自上次刷新累计 ≥5 次写才再刷；bootstrap 阶段(total<=5)保持每写刷新。
+    pub fn should_refresh_categories_with_writes(
+        &self,
+        total_memories: usize,
+        writes_since_refresh: usize,
+    ) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Balanced => total_memories <= 5 || writes_since_refresh >= 5,
+            Self::Aggressive => true,
+        }
+    }
+
     /// 自进化周期间隔（毫秒）
     pub fn evolution_interval_ms(&self) -> i64 {
         match self {

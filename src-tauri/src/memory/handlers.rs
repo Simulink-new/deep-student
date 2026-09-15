@@ -872,8 +872,12 @@ pub async fn memory_write_batch(
             "FILTERED" => filtered += 1,
             _ => skipped += 1,
         }
+        // ★ A8#2 双索引修复: Fact 已在 write_smart 内联 index_immediately,
+        // 只有非 Fact(write_explicit_memory 无内联索引)需要 handler 层再触发索引
         if let Some(resource_id) = &output.resource_id {
-            resource_ids.push(resource_id.clone());
+            if mem_type != super::service::MemoryType::Fact {
+                resource_ids.push(resource_id.clone());
+            }
         }
         results.push(MemoryBatchWriteItemResult {
             title: item.title,

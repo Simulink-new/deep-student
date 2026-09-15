@@ -879,8 +879,11 @@ impl MemoryToolExecutor {
                 "FILTERED" => filtered += 1,
                 _ => skipped += 1,
             }
+            // ★ A8#2 双索引修复: Fact 已内联索引,仅非 Fact 需要再触发
             if let Some(resource_id) = &output.resource_id {
-                resource_ids.push(resource_id.clone());
+                if memory_type != MemoryType::Fact {
+                    resource_ids.push(resource_id.clone());
+                }
             }
             results.push(json!({
                 "title": title,

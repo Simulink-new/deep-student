@@ -17,6 +17,10 @@ use super::storage_trait::VfsMemoryStorage;
 use super::error::{MemoryError, MemoryResult};
 use super::storage_trait::MemoryStorage;
 
+/// ★ perf-audit A8#3: 自上次分类刷新以来的写次数(进程级)
+static CATEGORY_REFRESH_WRITE_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// 文件夹树缓存，避免每次搜索/列表都执行 CTE 递归查询
 struct FolderIdCache {
     root_id: String,
@@ -668,12 +672,20 @@ impl MemoryService {
             let privacy_mode = mem_cfg.is_privacy_mode().unwrap_or(false);
 
             if !privacy_mode {
+                // ★ A8#3: 单调写计数器替代 total%5 modulo——总数停在倍数点时不再每写触发
+                // 全分类 LLM 刷新风暴;刷新后(无论成败)清零,避免错误重试风暴
                 let should_refresh = match svc.count_active_memories() {
-                    Ok(total) => frequency.should_refresh_categories(total as usize),
+                    Ok(total) => {
+                        let writes = CATEGORY_REFRESH_WRITE_COUNTER
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + 1;
+                        frequency.should_refresh_categories_with_writes(total as usize, writes as usize)
+                    }
                     Err(_) => false,
                 };
 
                 if should_refresh {
+                    CATEGORY_REFRESH_WRITE_COUNTER.store(0, std::sync::atomic::Ordering::Relaxed);
                     let cat_mgr = super::category_manager::MemoryCategoryManager::new(
                         storage.clone(),
                         llm_manager,
