@@ -3,6 +3,21 @@
 > 2026-09-11 08:4x CST | 基线 cec44506 | harness campaign-2 task-023
 > 覆盖: 17 批次并行审计 (A1-A11 后端 11 + B1-B6 前端 6), 详见各分报告; 本文只做汇总、对账与裁决
 
+## 0. 战役收官 (2026-09-15, task-041 终验)
+
+**审计 → 优化全战役完成**: 44 任务中 43 完成 0 失败(唯一遗留 task-040 拖拽链直传——等他会脏文件合流后执行,非本战役缺陷)。优化阶段共 **20 个 perf commit**(215a0482..0b88d40a), 终验 cargo check 0 error + tsc 0 error。
+
+落地要点(按六原则归档):
+1. **字节不过 JSON 通道**: 六视图主内容通道迁 pdfstream://(协议 blobs 定向放宽)+附件路径直传(聊天主链既有)+base64 惰性加载+图片缓存 Arc 化
+2. **增量优先**: 工具轮消息前缀共享+中间保存增量化(ΣO(R²)→O(R))+OCR/进度变化驱动落盘+会话懒加载(首屏50条游标分页)+delta 流(既有)
+3. **投影按需**: 列表 SQL 大列原位裁剪(3 repo 十位点)+ApiConfig id 投影+统计聚合 SQL 下推+manifest 拆分 summary+ndjson
+4. **单一权威+失效事件**: api_configs 60s 缓存(3 写点失效)+有效 id 集 30s 缓存+图片预览两级 LRU
+5. **合批/节流在源头**: PDF 进度 DB 写节流+finderStore watch 节流+focus 节流+备份 sleep 消除
+6. **删除不传递**: 35 孤儿 emit+4 死监听+~5,200 行死代码(含 multimodal 3,764)+400MB 写-only 缓存+幽灵命令收编
+
+其他: llm_request_body 回声默认关/请求体单次序列化/多变体伪 Arc 真共享(6MB→0)/memory 刷新风暴修复+Fact 双索引消除/同步 mtime 哈希备忘/备份 tee-hash+get_backup 直读。
+
+
 ## 1. 审计覆盖
 
 | 批次 | 范围 | 发现 | 文档 |
