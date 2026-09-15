@@ -41,8 +41,7 @@ pub async fn handle_create(
     folder_id: Option<String>,
 ) -> DstuResult<DstuNode> {
     let file_data = options
-        .file_data
-        .as_ref()
+        .resolved_file_data()
         .ok_or_else(|| DstuError::from("文件创建需要 file_data 参数".to_string()))?;
 
     let decoded = match BASE64.decode(file_data) {

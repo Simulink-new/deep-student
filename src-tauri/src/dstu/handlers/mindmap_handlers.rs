@@ -63,7 +63,7 @@ pub async fn handle_create(
         }
     };
 
-    if let Some(ref folder_id) = options.folder_id {
+    if let Some(ref folder_id) = options.resolved_folder_id() {
         let folder_item = VfsFolderItem::new(
             Some(folder_id.clone()),
             "mindmap".to_string(),

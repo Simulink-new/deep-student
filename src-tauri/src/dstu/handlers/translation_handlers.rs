@@ -80,7 +80,7 @@ pub async fn handle_create(
     };
 
     // 将翻译添加到文件夹
-    if let Some(ref folder_id) = options.folder_id {
+    if let Some(ref folder_id) = options.resolved_folder_id() {
         let folder_item = VfsFolderItem::new(
             Some(folder_id.clone()),
             "translation".to_string(),

@@ -51,7 +51,7 @@ pub async fn handle_create(
             metadata_json: options.metadata.clone().unwrap_or(serde_json::Value::Null),
             preview_json: options.content.clone().map(|c| serde_json::Value::String(c)).unwrap_or(serde_json::Value::Null),
             status: "active".to_string(),
-            folder_id: options.folder_id.clone(),
+            folder_id: options.resolved_folder_id(),
         },
     ) {
         Ok(e) => {
@@ -71,7 +71,7 @@ pub async fn handle_create(
     };
 
     // 将题目集添加到文件夹
-    if let Some(ref folder_id) = options.folder_id {
+    if let Some(ref folder_id) = options.resolved_folder_id() {
         let folder_item = VfsFolderItem::new(
             Some(folder_id.clone()),
             "exam".to_string(),

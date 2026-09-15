@@ -334,10 +334,15 @@ export const attachmentDstuAdapter = {
 
     console.log(LOG_PREFIX, 'create via DSTU:', path, { type, name });
 
+    const folderIdFromMetadata = typeof metadata?.folderId === 'string'
+      ? metadata.folderId
+      : undefined;
+
     const result = await dstu.create(path, {
       type,
       name,
       file,
+      folderId: folderIdFromMetadata,
       metadata: {
         mimeType: file instanceof File ? file.type : 'application/octet-stream',
         fileSize: file.size,

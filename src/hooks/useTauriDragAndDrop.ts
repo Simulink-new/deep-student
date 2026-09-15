@@ -150,6 +150,12 @@ export const useTauriDragAndDrop = ({
     onDropFilesRef.current = onDropFiles;
   }, [onDropFiles]);
 
+  const isPointInsideDropZone = useCallback((pos?: { x: number; y: number }): boolean => {
+    if (!pos || !dropZoneRef.current) return false;
+    const rect = dropZoneRef.current.getBoundingClientRect();
+    return pos.x >= rect.left && pos.x <= rect.right && pos.y >= rect.top && pos.y <= rect.bottom;
+  }, [dropZoneRef]);
+
   const isDropZoneVisible = useCallback(() => {
     if (!dropZoneRef.current) return false;
     const el = dropZoneRef.current;
@@ -390,13 +396,22 @@ export const useTauriDragAndDrop = ({
         const nextUnlisten = await webview.onDragDropEvent((event) => {
           // 🔥 提前静默检查可见性，不可见就直接返回，不发送任何日志
           if (!isEnabled || !isDropZoneVisible()) return;
-          
-          // 类型安全访问 paths（只有 enter 和 drop 事件有 paths）
-          const paths = 'paths' in event.payload ? event.payload.paths : undefined;
-          
-          switch (event.payload.type) {
+
+          const payload = event.payload as {
+            type: 'enter' | 'over' | 'leave' | 'drop' | 'cancel';
+            paths?: string[];
+            position?: { x: number; y: number };
+          };
+          const paths = payload.paths;
+          const isEndEvent = payload.type === 'leave' || payload.type === 'cancel' || payload.type === 'drop';
+          if (!isEndEvent && payload.position && !isPointInsideDropZone(payload.position)) {
+            return;
+          }
+
+          switch (payload.type) {
             case 'enter':
-              if (!paths?.length) {
+            case 'over':
+              if (payload.type === 'enter' && !paths?.length) {
                 return;
               }
               // 如果设置了 feedbackExtensions，只对匹配的文件显示反馈
@@ -409,6 +424,7 @@ export const useTauriDragAndDrop = ({
               });
               break;
             case 'leave':
+            case 'cancel':
               setIsDragging(false);
               emitDebugEvent(zoneId, 'drag_leave', 'debug', '拖拽离开区域', {
                 enabled: isEnabled,
@@ -416,12 +432,17 @@ export const useTauriDragAndDrop = ({
               break;
             case 'drop':
               setIsDragging(false);
-              markNativeDrop(); // 标记原生 drop 已处理
-              // feedbackOnly 模式下不处理文件
+              // 只有落在本区域内才认领，避免 Chat 输入框把整窗 drop 全部吃掉
+              if (payload.position && !isPointInsideDropZone(payload.position)) {
+                emitDebugEvent(zoneId, 'drop_received', 'debug', '落点不在本区域，跳过', {});
+                return;
+              }
+              // feedbackOnly 只提供视觉反馈，不能 markNativeDrop，否则会吞掉全局入库
               if (feedbackOnly) {
                 emitDebugEvent(zoneId, 'drop_received', 'debug', 'feedbackOnly 模式，跳过文件处理', {});
                 return;
               }
+              markNativeDrop(); // 标记原生 drop 已处理
               if (paths) {
                 processFilePaths(paths);
               }
@@ -528,7 +549,7 @@ export const useTauriDragAndDrop = ({
       unlisteners.forEach((fn) => fn());
       unlisteners = [];
     };
-  }, [isEnabled, processFilePaths, isDropZoneVisible, zoneId, feedbackOnly, feedbackExtensions, matchesFeedbackExtensions]);
+  }, [isEnabled, processFilePaths, isDropZoneVisible, isPointInsideDropZone, zoneId, feedbackOnly, feedbackExtensions, matchesFeedbackExtensions]);
 
   const dropZoneProps = {
     onDragEnter: (e: React.DragEvent) => {

@@ -196,8 +196,8 @@ pub async fn textbooks_add(
             Some(ref ext) if ext == "pdf" => ext.clone(),
             Some(ref ext) => {
                 let supported_extensions = [
-                    "docx", "txt", "md", "xlsx", "xls", "ods", "html", "htm", "pptx", "epub",
-                    "rtf", "csv", "json", "xml",
+                    "docx", "txt", "md", "markdown", "xlsx", "xls", "xlsb", "ods", "html", "htm",
+                    "pptx", "epub", "rtf", "csv", "json", "xml",
                 ];
                 if supported_extensions.contains(&ext.as_str()) {
                     ext.clone()
@@ -1373,29 +1373,46 @@ pub async fn vfs_ensure_ocr_pipeline(
     );
 
     // ★★ 检查文件状态：序列化冲突和系统占用
-    // 如果 processing_status 指示正在进行中，则拒绝重复启动
+    // ★ P0-3 修复：以 running_tasks 内存状态为"正在运行"的唯一判据。
+    // DB 中的 pending/中间态可能是进程被杀后的旧状态残留
+    //（recover_stuck_tasks 会把中断文件重置为 pending，但未必全部自动恢复），
+    // 仅凭 DB 状态拒绝会造成永远无法重启的死锁（ensure 拒绝 + retry 不收）。
+    let actually_running = pdf_processing_service.is_running(&file_id);
     if let Some(ref status) = file.processing_status {
-        let is_running = matches!(
+        let looks_active = matches!(
             status.as_str(),
             "pending" | "processing" | "ocr_processing" | "page_compression" | "page_rendering"
         );
-        if is_running {
-            return Ok(VfsEnsureOcrPipelineResponse {
-                status: "already_running".to_string(),
-                message: Some(format!("文件正在处理中 ({}), 请等待完成", status)),
-            });
+        if looks_active {
+            if actually_running {
+                return Ok(VfsEnsureOcrPipelineResponse {
+                    status: "already_running".to_string(),
+                    message: Some(format!("文件正在处理中 ({}), 请等待完成", status)),
+                });
+            }
+            // 旧状态残留：打日志后继续走下方检查点/启动逻辑，让流水线自愈
+            info!(
+                "[Textbooks] Stale processing_status '{}' for file {} (no running task in memory), treating as resumable",
+                status, file_id
+            );
         }
     }
 
-    // ★★ 检查 pending 状态：如果 processing_progress 存在且 stage 未完成
+    // ★★ 检查 processing_progress 中的阶段：同样以内存运行状态为准
     if let Some(ref progress) = file.processing_progress {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(progress) {
             let stage = parsed.get("stage").and_then(|v| v.as_str()).unwrap_or("");
             if matches!(stage, "ocr_processing" | "page_compression" | "page_rendering") {
-                return Ok(VfsEnsureOcrPipelineResponse {
-                    status: "already_running".to_string(),
-                    message: Some(format!("OCR 正在进行中 (stage: {})", stage)),
-                });
+                if actually_running {
+                    return Ok(VfsEnsureOcrPipelineResponse {
+                        status: "already_running".to_string(),
+                        message: Some(format!("OCR 正在进行中 (stage: {})", stage)),
+                    });
+                }
+                info!(
+                    "[Textbooks] Stale progress stage '{}' for file {} (no running task in memory), treating as resumable",
+                    stage, file_id
+                );
             }
         }
     }

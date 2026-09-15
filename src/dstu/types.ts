@@ -210,6 +210,9 @@ export interface DstuCreateOptions {
   /** 文件（教材等二进制资源） */
   file?: File | Blob;
 
+  /** 目标文件夹 ID（与后端 DstuCreateOptions.folderId 对齐） */
+  folderId?: string | null;
+
   /** 扩展元数据 */
   metadata?: Record<string, unknown>;
 }

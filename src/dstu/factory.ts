@@ -161,6 +161,7 @@ export async function createEmpty(options: CreateEmptyOptions): Promise<Result<D
     type,
     name: finalName,
     content: template.content,
+    folderId: folderId ?? undefined,
     metadata,
   });
 

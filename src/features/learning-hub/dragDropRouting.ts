@@ -81,3 +81,40 @@ export function summarizeFailedMarkdownFiles(failedFiles: string[]): string | nu
   const remaining = failedFiles.length - 3;
   return remaining > 0 ? `${preview} +${remaining}` : preview;
 }
+
+function isElementVisiblyInteractive(el: HTMLElement): boolean {
+  let current: HTMLElement | null = el;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (parseFloat(style.opacity) === 0) return false;
+    if (style.pointerEvents === 'none') return false;
+    const zIndexValue = parseInt(style.zIndex, 10);
+    if (!Number.isNaN(zIndexValue) && zIndexValue < 0) return false;
+    current = current.parentElement;
+  }
+  return el.offsetWidth > 0 && el.offsetHeight > 0;
+}
+
+/**
+ * 落点是否位于可见的专项拖拽区（Chat 输入框、访达、试卷/翻译/作文上传等）。
+ * 全局资源仓库 overlay 在命中这些区域时应让路，避免双写。
+ */
+export function isPointOverLocalDropClaim(x: number, y: number): boolean {
+  if (typeof document === 'undefined') return false;
+  const el = document.elementFromPoint(x, y);
+  const claim = el?.closest('[data-drop-claim="local"]');
+  if (!(claim instanceof HTMLElement)) return false;
+  return isElementVisiblyInteractive(claim);
+}
+
+export function hasVisibleLocalDropClaim(): boolean {
+  if (typeof document === 'undefined') return false;
+  const claims = document.querySelectorAll('[data-drop-claim="local"]');
+  for (const claim of claims) {
+    if (claim instanceof HTMLElement && isElementVisiblyInteractive(claim)) {
+      return true;
+    }
+  }
+  return false;
+}

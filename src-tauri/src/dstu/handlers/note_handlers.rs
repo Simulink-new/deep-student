@@ -67,7 +67,7 @@ pub async fn handle_create(
     };
 
     // 将笔记添加到文件夹（如果指定了 folder_id）
-    if let Some(ref folder_id) = options.folder_id {
+    if let Some(ref folder_id) = options.resolved_folder_id() {
         let _ = crate::vfs::VfsFolderRepo::add_item_to_folder(
             vfs_db,
             &crate::vfs::VfsFolderItem::new(

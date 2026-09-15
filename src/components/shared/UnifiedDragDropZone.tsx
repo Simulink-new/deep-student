@@ -39,6 +39,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   // 文本格式
   txt: 'text/plain',
   md: 'text/markdown',
+  markdown: 'text/markdown',
   csv: 'text/csv',
   json: 'application/json',
   xml: 'application/xml',
@@ -146,7 +147,7 @@ export const FILE_TYPES: Record<string, FileTypeDefinition> = {
   },
   DOCUMENT: {
     extensions: [
-      'pdf', 'docx', 'txt', 'md', 'csv', 'json', 'xml', 'html', 'htm', 'xlsx', 'xls', 'xlsb', 'ods',
+      'pdf', 'docx', 'txt', 'md', 'markdown', 'csv', 'json', 'xml', 'html', 'htm', 'xlsx', 'xls', 'xlsb', 'ods',
       'pptx',  // PowerPoint
       'epub',  // 电子书
       'rtf',   // 富文本
@@ -205,6 +206,10 @@ export interface UnifiedDragDropZoneProps {
   zoneId: string;
   onFilesDropped: (files: File[]) => void | Promise<void>;
   onPathsDropped?: (paths: string[]) => void | Promise<void>;
+  /** ★ task-040/B6#1: 路径专用模式——跳过 read_file_bytes + File 对象构造
+   * (10MB 文件 number[] 过 JSON ≈165MB 瞬时内存,消费端只用路径),也不调用 onFilesDropped。
+   * 需要文件内容的消费端保持默认 false,行为不变。 */
+  pathsOnly?: boolean;
   enabled?: boolean;
   acceptedFileTypes?: FileTypeDefinition[];
   maxFiles?: number;
@@ -229,6 +234,7 @@ export const UnifiedDragDropZone: React.FC<UnifiedDragDropZoneProps> = ({
   zoneId,
   onFilesDropped,
   onPathsDropped,
+  pathsOnly = false,
   enabled = true,
   acceptedFileTypes = [FILE_TYPES.IMAGE, FILE_TYPES.DOCUMENT],
   maxFiles = 10,
@@ -445,19 +451,23 @@ export const UnifiedDragDropZone: React.FC<UnifiedDragDropZoneProps> = ({
               continue;
             }
 
-            const rawBytes = await invoke<number[]>('read_file_bytes', { path: p });
-            const bytes = new Uint8Array(rawBytes);
-            
             // 验证通过，添加到有效路径列表
             validPaths.push(p);
-            const mime = getMimeType(name);
-            files.push(new File([bytes], name, { type: mime }));
-            
-            emitDebugEvent(zoneId, 'file_converted', 'debug', `文件转换成功: ${name}`, {
-              fileName: name,
-              fileSize: `${(bytes.length / (1024 * 1024)).toFixed(2)}MB`,
-              mimeType: mime,
-            });
+
+            // ★ task-040/B6#1: pathsOnly 模式跳过字节读取与 File 构造
+            // (number[] 过 JSON ~3-4× 放大,10MB 文件 ≈165MB 瞬时内存,路径消费端完全用不到)
+            if (!pathsOnly) {
+              const rawBytes = await invoke<number[]>('read_file_bytes', { path: p });
+              const bytes = new Uint8Array(rawBytes);
+              const mime = getMimeType(name);
+              files.push(new File([bytes], name, { type: mime }));
+
+              emitDebugEvent(zoneId, 'file_converted', 'debug', `文件转换成功: ${name}`, {
+                fileName: name,
+                fileSize: `${(bytes.length / (1024 * 1024)).toFixed(2)}MB`,
+                mimeType: mime,
+              });
+            }
           } catch (fileError: unknown) {
             const errMsg = getErrorMessage(fileError);
             rejected.push(`${name}: ${errMsg}`);
@@ -509,7 +519,7 @@ export const UnifiedDragDropZone: React.FC<UnifiedDragDropZoneProps> = ({
             rejectedCount: rejected.length,
             processingTime: `${(performance.now() - startTime).toFixed(2)}ms`,
           });
-        } else if (!rejected.length) {
+        } else if (!rejected.length && !validPaths.length) {
           showGlobalNotification('info', t('drag_drop:errors.no_valid_files'));
           emitDebugEvent(zoneId, 'complete', 'warning', '没有有效文件', {
             processingTime: `${(performance.now() - startTime).toFixed(2)}ms`,
@@ -687,6 +697,7 @@ export const UnifiedDragDropZone: React.FC<UnifiedDragDropZoneProps> = ({
       className={`unified-drag-drop-zone relative ${className}`}
       style={style}
       data-zone-id={zoneId}
+      data-drop-claim={enabled ? 'local' : undefined}
       data-dragging={isDragging}
       data-processing={isProcessing}
       onDragEnter={handleDragEnter}

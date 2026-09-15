@@ -37,10 +37,9 @@ pub async fn handle_create(
     options: &DstuCreateOptions,
     folder_id: Option<String>,
 ) -> DstuResult<DstuNode> {
-    // 教材需要 file_data
+    // 教材需要 file_data（兼容前端只传 fileBase64 的情况）
     let file_data = options
-        .file_data
-        .as_ref()
+        .resolved_file_data()
         .ok_or_else(|| DstuError::from("教材创建需要 file_data 参数".to_string()))?;
 
     // 解码 Base64 内容

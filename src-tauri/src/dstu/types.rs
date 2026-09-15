@@ -471,6 +471,30 @@ impl DstuCreateOptions {
         self.metadata = Some(metadata);
         self
     }
+
+    /// 解析文件内容（`file_data` 与 `file_base64` 同义，前端可能只传其中一个）
+    pub fn resolved_file_data(&self) -> Option<&str> {
+        self.file_data
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or_else(|| self.file_base64.as_deref().filter(|value| !value.is_empty()))
+    }
+
+    /// 解析目标文件夹 ID（顶层 `folder_id` 优先，兼容 metadata.folderId）
+    pub fn resolved_folder_id(&self) -> Option<String> {
+        if let Some(id) = self.folder_id.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            return Some(id.to_string());
+        }
+        self.metadata.as_ref().and_then(|metadata| {
+            metadata
+                .get("folderId")
+                .or_else(|| metadata.get("folder_id"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+        })
+    }
 }
 
 // ============================================================================

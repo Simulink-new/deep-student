@@ -54,6 +54,7 @@ import './styles/modern-buttons.css'; // 现代化按钮样式
 import './styles/responsive-utilities.css'; // 响应式工具类
 // 🚀 性能优化：页面组件改为懒加载
 import { NotificationContainer } from './components/NotificationContainer';
+import { GlobalResourceDropOverlay } from './features/learning-hub/components/GlobalResourceDropOverlay';
 import { showGlobalNotification } from './components/UnifiedNotification';
 import { loadStoredCloudStorageConfigWithCredentials } from './utils/cloudStorageApi';
 import { listenSyncProgress, runSyncWithProgress } from './api/dataGovernance';
@@ -2706,6 +2707,9 @@ function App() {
       
       {/* 全局通知容器 */}
       <NotificationContainer />
+
+      {/* 全局资源仓库拖拽入库（挂在 ViewLayer 之外，始终可触发） */}
+      <GlobalResourceDropOverlay />
 
       {/* 云存储配置弹窗 - 移到全局位置避免被 renderViewLayer 的 visibility 影响 */}
       <NotionDialog open={showCloudStorageSettings} onOpenChange={setShowCloudStorageSettings} maxWidth="max-w-[560px]">

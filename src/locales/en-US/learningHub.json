@@ -437,7 +437,9 @@
       "importSuccess": "Imported {{count}} files",
       "importPartial": "{{success}} imported, {{failed}} failed",
       "importFailed": "File import failed",
-      "notAllowedHere": "Cannot drop files in this view"
+      "notAllowedHere": "Cannot drop files in this view",
+      "unsupportedType": "Unsupported file type",
+      "unsupportedFiles": "Unsupported: {{names}}"
     },
     "markdownImport": {
       "selectFiles": "Select Markdown Files",

@@ -282,6 +282,7 @@ export const notesDstuAdapter = {
       type: 'note',
       name: title,
       content: normalizeMarkdownContent(content),
+      folderId: folderId ?? undefined,
       metadata: folderId ? { folderId } : undefined,
     });
 

@@ -2064,6 +2064,7 @@ export function LearningHubSidebar({
         zoneId="learning-hub-finder"
         onFilesDropped={handleFilesDrop}
         onPathsDropped={handlePathsDrop}
+        pathsOnly
         enabled={isDragDropEnabled}
         acceptedFileTypes={[FILE_TYPES.IMAGE, FILE_TYPES.DOCUMENT, FILE_TYPES.AUDIO, FILE_TYPES.VIDEO]}
         maxFiles={20}
