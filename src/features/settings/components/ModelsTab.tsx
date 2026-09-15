@@ -13,6 +13,7 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { DimensionManagement } from './DimensionManagement';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { OcrEngineCard } from './OcrEngineCard';
+import ModelWatchSection from './ModelWatchSection';
 import { cn } from '@/lib/utils';
 import type { ApiConfig } from '@/types';
 
@@ -425,6 +426,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
           )}
         </div>
       </SettingSection>
+
+      {/* 新模型发现（每日巡检各供应商 /models 上架情况，task-046） */}
+      <ModelWatchSection />
     </div>
   );
 };

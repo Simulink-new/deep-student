@@ -1,0 +1,18 @@
+{
+  "title": "New model discovery",
+  "description": "Checks your providers daily for newly released models and lists any that are not configured locally yet.",
+  "check_now": "Check now",
+  "checking": "Checking…",
+  "last_run": "Last checked: {{time}}",
+  "never_run": "Never checked yet",
+  "no_new_models": "No new models found",
+  "add_draft": "Add",
+  "dismiss": "Dismiss",
+  "added_draft": "Added as a disabled draft — refine its parameters in the model list, then enable it",
+  "add_failed": "Failed to add: {{error}}",
+  "dismissed": "Model dismissed",
+  "run_done": "Check complete: {{checked}} providers checked, {{count}} new models found",
+  "run_done_none": "Check complete: {{checked}} providers checked, no new models",
+  "run_failed": "Check failed: {{error}}",
+  "event_new": "{{count}} new models discovered"
+}

@@ -53,6 +53,7 @@ pub mod mcp;
 pub mod memory; // Memory-as-VFS 记忆系统（复用 VFS 基础设施）
 pub mod metrics_server;
 pub mod models;
+pub mod model_watch; // 模型新版本每日巡检（task-046）：/models diff + 新模型发现通知
 pub mod multimodal; // 多模态知识库模块（基于 Qwen3-VL-Embedding/Reranker）
 pub mod notes_exporter;
 pub mod notes_manager;
@@ -823,6 +824,15 @@ pub fn run() {
                 });
             }
 
+            // 模型新版本每日巡检 (task-046)：每日拉取各供应商 /models，diff 出本地未配置的新模型
+            {
+                crate::model_watch::start_daily_scheduler(
+                    app_handle.clone(),
+                    app_state.inner().llm_manager.clone(),
+                    database.clone(),
+                );
+            }
+
             let database_for_queue = database.clone();
 
             let llm_for_queue = app_state.inner().llm_manager.clone();
@@ -972,6 +982,10 @@ pub fn run() {
             crate::commands::save_vendor_configs,
             crate::commands::get_model_profiles,
             crate::commands::save_model_profiles,
+            crate::model_watch::model_watch_get_state,
+            crate::model_watch::model_watch_run_now,
+            crate::model_watch::model_watch_dismiss,
+            crate::model_watch::model_watch_add_as_draft,
             crate::commands::test_api_connection,
 
             crate::commands::get_model_adapter_options,
