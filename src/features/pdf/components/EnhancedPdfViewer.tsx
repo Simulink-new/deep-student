@@ -422,7 +422,7 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     // 清除之前遗留的错误提示，用户再次尝试时重置
     setOcrError(null);
     setIsOcrTriggering(true);
-    invoke('vfs_ensure_ocr_pipeline', { fileId })
+    invoke('vfs_ensure_ocr_pipeline', { fileId, force: true })
       .then(() => {
         setIsOcrTriggering(false);
         setOcrError(null);

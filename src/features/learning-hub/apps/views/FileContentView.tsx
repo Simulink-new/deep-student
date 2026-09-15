@@ -31,6 +31,7 @@ import { getErrorMessage } from '@/utils/errorUtils';
 import { fileManager } from '@/utils/fileManager';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
 import { usePdfProcessingStore } from '@/features/pdf/stores/pdfProcessingStore';
+import { usePdfProcessingProgress } from '@/hooks/usePdfProcessingProgress'; // task-045: 事件喂养进度 store
 
 // PDF 预览组件
 import { TextbookPdfViewer } from '@/features/pdf/components/TextbookPdfViewer';
@@ -160,6 +161,8 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
   // FIX: use node.sourceId (resourceId/att_xxx) instead of node.id (VFS node ID),
   // because the store (pdfProcessingStore.ts) is keyed by fileId (resourceId)
   // matching the backend event payload's fileId field.
+  // ★ task-045: 挂载事件监听喂养进度 store(learning-hub 无 chat 输入栏时此前无人监听)
+  usePdfProcessingProgress();
   const ocrStatus = usePdfProcessingStore((s) => s.statusMap.get(node.sourceId));
   const isOcrProcessing = ocrStatus?.stage === 'ocr_processing' || ocrStatus?.stage === 'page_compression' || ocrStatus?.stage === 'page_rendering';
   const isOcrCompleted = ocrStatus?.stage === 'completed' || ocrStatus?.stage === 'completed_with_issues';
@@ -172,7 +175,7 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
     if (!node.sourceId || isOcrTriggering) return;
     setIsOcrTriggering(true);
     try {
-      await invoke('vfs_ensure_ocr_pipeline', { fileId: node.sourceId });
+      await invoke('vfs_ensure_ocr_pipeline', { fileId: node.sourceId, force: true });
       showGlobalNotification('info', t('learningHub:file.ocrStarted', 'OCR 处理已启动'));
     } catch (err) {
       console.error('[FileContentView] Failed to start OCR:', err);

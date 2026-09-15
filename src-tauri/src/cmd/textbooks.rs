@@ -1338,6 +1338,7 @@ pub async fn vfs_ensure_ocr_pipeline(
     state: State<'_, AppState>,
     pdf_processing_service: State<'_, Arc<PdfProcessingService>>,
     file_id: String,
+    force: Option<bool>,
 ) -> Result<VfsEnsureOcrPipelineResponse> {
     // [写门-接线] 同步写门检查: 同步 apply 期间 (写门被占) → SyncInProgress (可重试)。
     // 本命令错误类型为 AppError, 在调用点手工映射（消息保留"请稍后重试"语义）。
@@ -1428,6 +1429,23 @@ pub async fn vfs_ensure_ocr_pipeline(
                 .unwrap_or(false);
 
             if is_completed {
+                // ★ task-045 修复: 用户手动"重新 OCR"(force=true)时强制重启流水线。
+                // 旧实现对已完成 OCR 只补笔记直接返回——任务从未重启,前端表现为
+                // "成功+失败双弹窗(后续 info 查询失败)且无进度条"。
+                if force.unwrap_or(false) {
+                    pdf_processing_service.mark_force_ocr(&file_id);
+                    pdf_processing_service
+                        .start_pipeline(&file_id, Some(ProcessingStage::OcrProcessing))
+                        .await
+                        .map_err(|e| {
+                            pdf_processing_service.unmark_force_ocr(&file_id);
+                            AppError::database(format!("强制重启 OCR 流水线失败: {}", e))
+                        })?;
+                    return Ok(VfsEnsureOcrPipelineResponse {
+                        status: "ocr_started".to_string(),
+                        message: Some("OCR 流水线已强制重启（忽略已有结果）".to_string()),
+                    });
+                }
                 // ★ 检查 OCR 笔记是否存在，如果缺失则补建
                 let note_id = pdf_processing_service.ensure_ocr_note(&file_id).await;
                 if let Some(ref nid) = note_id {

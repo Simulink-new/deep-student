@@ -28,6 +28,7 @@ import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { CustomScrollArea } from '@/components/custom-scroll-area';
 import { vfsFileApi, getBlobStreamUrl, fetchBlobStreamResponse } from '@/api/vfsFileApi';
 import { usePdfLoader } from '@/hooks/usePdfLoader';
+import { usePdfProcessingProgress } from '@/hooks/usePdfProcessingProgress'; // task-045: 事件喂养进度 store
 import { debugLog } from '@/debug-panel/debugMasterSwitch';
 import { classifyPdfError, PdfErrorType } from '@/features/pdf/types/pdfErrors';
 import {
@@ -181,6 +182,10 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
   const isText = resolvedPreviewType === 'text';
   const isUnsupported = resolvedPreviewType === 'none';
   const needsFileContent = isDocx || isXlsx || isPptx || isText;
+
+  /** ★ task-045: 挂载处理进度事件监听——media-processing-* 事件喂养全局 store,
+   * learning-hub 此前无人监听(chat InputBar 未挂载时),重 OCR 期间进度条永不更新 */
+  usePdfProcessingProgress();
 
   /** 订阅 PDF 处理状态 Store（响应 OCR/文本提取等处理进度） */
   const processingStatus = usePdfProcessingStore(
@@ -653,7 +658,8 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
     try {
       const response = await invoke<{ status: string; message?: string }>(
         'vfs_ensure_ocr_pipeline',
-        { fileId: node.sourceId },
+        // ★ task-045: 手动"重新 OCR"强制重启——旧实现已完成 OCR 只补笔记不重启
+        { fileId: node.sourceId, force: true },
       );
 
       // ★ 根据后端返回状态给用户反馈
@@ -695,12 +701,18 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       }
 
       // 获取 OCR 文本内容
-      const ocrInfoResult = await invoke<{ hasOcr: boolean; ocrText: string | null }>(
-        'vfs_get_resource_ocr_info',
-        { resourceId: node.resourceId || node.sourceId },
-      );
-      if (ocrInfoResult.hasOcr && ocrInfoResult.ocrText) {
-        setOcrTextContent(ocrInfoResult.ocrText);
+      // ★ task-045: 内容刷新查询静默失败——旧实现此处抛错会走外层 catch 弹
+      // "OCR 启动失败"错误 toast,与上方成功提示同屏双弹窗
+      try {
+        const ocrInfoResult = await invoke<{ hasOcr: boolean; ocrText: string | null }>(
+          'vfs_get_resource_ocr_info',
+          { resourceId: node.resourceId || node.sourceId },
+        );
+        if (ocrInfoResult.hasOcr && ocrInfoResult.ocrText) {
+          setOcrTextContent(ocrInfoResult.ocrText);
+        }
+      } catch (infoErr) {
+        console.debug('[TextbookContentView] OCR info refresh failed (non-fatal):', infoErr);
       }
     } catch (err: unknown) {
       console.warn('[TextbookContentView] Manual OCR failed:', err);
