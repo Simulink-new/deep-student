@@ -1139,7 +1139,10 @@ export const CrepeEditor = forwardRef<CrepeEditorApi, CrepeEditorProps>((props, 
             if (destroyed || !crepeRef.current || isComposing) return;
             let markdown = '';
             try {
-              markdown = (crepeRef.current.getMarkdown() || '').split(ZWS).join('');
+              // ★ B5/task-043: ZWS 剥离条件化——IME 合成外的常规输入串不含 ZWS,
+              // 旧实现无条件 split+join 全文拷贝一份(50KB 文档每次序列化后多一次全串复制)
+              const raw = crepeRef.current.getMarkdown() || '';
+              markdown = raw.includes(ZWS) ? raw.split(ZWS).join('') : raw;
             } catch {
               return;
             }
