@@ -385,6 +385,8 @@ export interface LoadSessionResponse {
   messages: BackendMessage[];
   blocks: BackendBlock[];
   state?: SessionState;
+  /** 分页加载：是否还有更早的历史消息（全量加载/旧后端无此字段） */
+  hasMore?: boolean;
 }
 
 /**

@@ -34,6 +34,7 @@ import { modeRegistry } from '../registry';
 // 🔧 优化：sessionManager 仅用于获取元数据，不再用于获取 Store 状态
 // 构造函数现在接收 storeApi 参数，消除了循环依赖的核心问题
 import { sessionManager } from '../core/session/sessionManager';
+import { CHAT_MESSAGES_PAGE_SIZE } from '../core/constants';
 import { sessionSwitchPerf } from '../debug/sessionSwitchPerf';
 import { getTestModeConfig } from '@/utils/testMode';
 import type {
@@ -596,6 +597,16 @@ export class ChatV2TauriAdapter {
         this.continueMessage(messageId, variantId)
       );
       this.store.setLoadCallback(() => this.loadSession());
+      // 🆕 B3#1 懒加载接线：向上滚动到顶时按游标拉取更早的历史消息。
+      // MessageList 的顶部哨兵 IntersectionObserver → store.loadMoreMessages() → 本回调。
+      // 之前"懒加载机器"(store 动作 + 哨兵观察器)齐备但回调从未注册，首屏实际总是全量加载。
+      this.store.setLoadMoreMessagesCallback((oldestMessageId: string) =>
+        invoke<LoadSessionResponseType>('chat_v2_load_session', {
+          sessionId: this.sessionId,
+          limit: CHAT_MESSAGES_PAGE_SIZE,
+          beforeMessageId: oldestMessageId,
+        })
+      );
       this.store.setSwitchVariantCallback((messageId, variantId) =>
         this.executeSwitchVariant(messageId, variantId)
       );
@@ -2804,6 +2815,8 @@ export class ChatV2TauriAdapter {
       
       const response = await invoke<LoadSessionResponseType>('chat_v2_load_session', {
         sessionId: this.sessionId,
+        // 🆕 B3#1: 首屏只拉最近一页，更早消息由 loadMoreMessagesCallback 按需补页
+        limit: CHAT_MESSAGES_PAGE_SIZE,
       });
       const invokeMs = performance.now() - t0;
 

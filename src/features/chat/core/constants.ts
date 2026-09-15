@@ -48,6 +48,13 @@ export const SESSION_MANAGER_MAX_SESSIONS = 10;
 /** 会话列表分页大小 */
 export const SESSION_LIST_PAGE_SIZE = 50;
 
+/**
+ * 会话消息懒加载分页大小（B3#1）
+ * 首屏只拉最近一页，滚动到顶触发 loadMoreMessages 按游标取更早消息。
+ * ★ 与 appendOlderMessages 的去默认推断保持一致
+ */
+export const CHAT_MESSAGES_PAGE_SIZE = 50;
+
 /** 会话状态轮询间隔（毫秒） */
 export const SESSION_POLL_INTERVAL_MS = 1000;
 

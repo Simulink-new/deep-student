@@ -43,7 +43,10 @@ impl ChatV2Pipeline {
             .ok()
             .map(std::sync::Arc::new)?;
         let storage = std::sync::Arc::new(VfsMemoryStorage::new(
-            vfs_db.clone(), lance_store, self.llm_manager.clone()));
+            vfs_db.clone(),
+            lance_store,
+            self.llm_manager.clone(),
+        ));
         let mem_cfg = MemoryConfig::new(storage.clone());
         if mem_cfg.is_privacy_mode().ok()? {
             return None;
@@ -128,11 +131,15 @@ impl ChatV2Pipeline {
         use crate::memory::{MemoryConfig, MemoryService, VfsMemoryStorage};
         let Some(lance_store) = VfsLanceStore::new(vfs_db.clone())
             .ok()
-            .map(std::sync::Arc::new) else {
+            .map(std::sync::Arc::new)
+        else {
             return (vec![], None);
         };
         let storage = std::sync::Arc::new(VfsMemoryStorage::new(
-            vfs_db.clone(), lance_store, self.llm_manager.clone()));
+            vfs_db.clone(),
+            lance_store,
+            self.llm_manager.clone(),
+        ));
         let mem_cfg = MemoryConfig::new(storage.clone());
         if mem_cfg.is_privacy_mode().ok().unwrap_or(false) {
             return (vec![], None);

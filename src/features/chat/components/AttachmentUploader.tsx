@@ -424,6 +424,7 @@ export const AttachmentUploader: React.FC<AttachmentUploaderProps> = ({
       ) : showDropZone && (
         <div
           ref={dropZoneRef}
+          data-drop-claim="local"
           onClick={handleClick}
           {...dropZoneProps}
           className={cn(

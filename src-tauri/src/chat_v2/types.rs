@@ -2142,6 +2142,10 @@ pub struct LoadSessionResponse {
     /// 会话状态（可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<SessionState>,
+
+    /// 分页加载：是否还有更早的历史消息（未分页的全量加载为 None）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_more: Option<bool>,
 }
 
 /// 会话设置（用于更新会话）
@@ -2884,6 +2888,7 @@ mod tests {
             messages: vec![message],
             blocks: vec![block],
             state: None,
+            has_more: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();

@@ -1529,6 +1529,200 @@ impl ChatV2Repo {
             messages,
             blocks,
             state,
+            has_more: None,
+        })
+    }
+
+    // ========================================================================
+    // 会话分页加载（懒加载历史消息）
+    // ========================================================================
+
+    /// 解析分页游标：返回游标消息的 (timestamp, rowid)
+    ///
+    /// `before_message_id` 为 None（取最新一页）时返回 None；
+    /// 游标消息不存在（如已被删除）时也返回 None，调用方据此返回空页终止翻页。
+    fn resolve_message_cursor(
+        conn: &Connection,
+        session_id: &str,
+        before_message_id: Option<&str>,
+    ) -> ChatV2Result<Option<(i64, i64)>> {
+        let mid = match before_message_id {
+            Some(mid) => mid,
+            None => return Ok(None),
+        };
+        Ok(conn
+            .query_row(
+                "SELECT timestamp, rowid FROM chat_v2_messages WHERE id = ?1 AND session_id = ?2",
+                params![mid, session_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// 收集消息行（畸形行跳过，与 get_session_messages_with_conn 一致）
+    fn collect_message_rows<I>(rows: I) -> Vec<ChatMessage>
+    where
+        I: Iterator<Item = rusqlite::Result<ChatMessage>>,
+    {
+        rows.filter_map(|r| match r {
+            Ok(val) => Some(val),
+            Err(e) => {
+                log::warn!("[ChatV2Repo] Skipping malformed row: {}", e);
+                None
+            }
+        })
+        .collect()
+    }
+
+    /// 获取会话最近一页消息（懒加载分页）
+    ///
+    /// - `limit`：本页最大消息数
+    /// - `before_message_id`：游标消息 ID；None 时取最新一页
+    ///
+    /// 返回 (按时间升序的消息, 是否还有更早消息)。
+    /// 实现：SQL 按 (timestamp, rowid) DESC 取 limit+1 行，多出的一行仅用于探测
+    /// has_more，截断后 reverse 恢复时间升序，与全量加载的排序语义一致。
+    pub fn get_session_messages_page_with_conn(
+        conn: &Connection,
+        session_id: &str,
+        limit: i64,
+        before_message_id: Option<&str>,
+    ) -> ChatV2Result<(Vec<ChatMessage>, bool)> {
+        const SQL_WITH_CURSOR: &str = "SELECT id, session_id, role, block_ids_json, timestamp, persistent_stable_id, parent_id, supersedes, meta_json, attachments_json, active_variant_id, variants_json, shared_context_json \
+             FROM chat_v2_messages WHERE session_id = ?1 AND (timestamp, rowid) < (?2, ?3) \
+             ORDER BY timestamp DESC, rowid DESC LIMIT ?4";
+        const SQL_LATEST: &str = "SELECT id, session_id, role, block_ids_json, timestamp, persistent_stable_id, parent_id, supersedes, meta_json, attachments_json, active_variant_id, variants_json, shared_context_json \
+             FROM chat_v2_messages WHERE session_id = ?1 \
+             ORDER BY timestamp DESC, rowid DESC LIMIT ?2";
+
+        let (sql, cursor_values) = match Self::resolve_message_cursor(conn, session_id, before_message_id)? {
+            Some((ts, rid)) => (SQL_WITH_CURSOR, Some((ts, rid))),
+            None if before_message_id.is_some() => {
+                // 游标消息不存在（已被删除等）：视为没有更早消息，终止翻页
+                return Ok((Vec::new(), false));
+            }
+            None => (SQL_LATEST, None),
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+        let mut messages: Vec<ChatMessage> = match cursor_values {
+            Some((ts, rid)) => Self::collect_message_rows(
+                stmt.query_map(params![session_id, ts, rid, limit + 1], Self::row_to_message)?,
+            ),
+            None => Self::collect_message_rows(
+                stmt.query_map(params![session_id, limit + 1], Self::row_to_message)?,
+            ),
+        };
+
+        let has_more = messages.len() as i64 > limit;
+        messages.truncate(limit as usize);
+        messages.reverse();
+        Ok((messages, has_more))
+    }
+
+    /// 批量获取会话一页消息的块（与 get_session_messages_page_with_conn 共用游标语义）
+    ///
+    /// 只取本页 limit 条消息关联的块（探测行不取块），JOIN 子查询与消息分页同构。
+    pub fn get_session_blocks_page_with_conn(
+        conn: &Connection,
+        session_id: &str,
+        limit: i64,
+        before_message_id: Option<&str>,
+    ) -> ChatV2Result<Vec<MessageBlock>> {
+        const SQL_WITH_CURSOR: &str = "SELECT b.id, b.message_id, b.block_type, b.status, b.block_index, \
+             b.content, b.tool_name, b.tool_input_json, b.tool_output_json, \
+             b.citations_json, b.error, b.started_at, b.ended_at, b.first_chunk_at \
+             FROM chat_v2_blocks b \
+             INNER JOIN (SELECT id, timestamp, rowid FROM chat_v2_messages \
+                 WHERE session_id = ?1 AND (timestamp, rowid) < (?2, ?3) \
+                 ORDER BY timestamp DESC, rowid DESC LIMIT ?4) page ON b.message_id = page.id \
+             ORDER BY page.timestamp ASC, COALESCE(b.first_chunk_at, b.started_at) ASC, b.block_index ASC";
+        const SQL_LATEST: &str = "SELECT b.id, b.message_id, b.block_type, b.status, b.block_index, \
+             b.content, b.tool_name, b.tool_input_json, b.tool_output_json, \
+             b.citations_json, b.error, b.started_at, b.ended_at, b.first_chunk_at \
+             FROM chat_v2_blocks b \
+             INNER JOIN (SELECT id, timestamp, rowid FROM chat_v2_messages \
+                 WHERE session_id = ?1 \
+                 ORDER BY timestamp DESC, rowid DESC LIMIT ?2) page ON b.message_id = page.id \
+             ORDER BY page.timestamp ASC, COALESCE(b.first_chunk_at, b.started_at) ASC, b.block_index ASC";
+
+        let (sql, cursor_values) = match Self::resolve_message_cursor(conn, session_id, before_message_id)? {
+            Some((ts, rid)) => (SQL_WITH_CURSOR, Some((ts, rid))),
+            None if before_message_id.is_some() => return Ok(Vec::new()),
+            None => (SQL_LATEST, None),
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+        let rows = match cursor_values {
+            Some((ts, rid)) => stmt.query_map(params![session_id, ts, rid, limit], Self::row_to_block)?,
+            None => stmt.query_map(params![session_id, limit], Self::row_to_block)?,
+        };
+        let blocks: Vec<MessageBlock> = rows
+            .filter_map(|r| match r {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    log::warn!("[ChatV2Repo] Skipping malformed row: {}", e);
+                    None
+                }
+            })
+            .collect();
+        Ok(blocks)
+    }
+
+    /// 分页加载会话（懒加载历史消息，使用 ChatV2Database）
+    pub fn load_session_paged_v2(
+        db: &ChatV2Database,
+        session_id: &str,
+        limit: i64,
+        before_message_id: Option<&str>,
+    ) -> ChatV2Result<LoadSessionResponse> {
+        let conn = db.get_conn_safe()?;
+        Self::load_session_paged_with_conn(&conn, session_id, limit, before_message_id)
+    }
+
+    /// 分页加载会话（使用现有连接）
+    ///
+    /// 与 load_session_full_with_conn 的区别：消息与块只取最近一页（或游标之前的一页），
+    /// 响应带 has_more 标记。session/state 体积小，始终加载以保持响应结构一致，
+    /// 供前端 appendOlderMessages 直接复用同一类型。
+    pub fn load_session_paged_with_conn(
+        conn: &Connection,
+        session_id: &str,
+        limit: i64,
+        before_message_id: Option<&str>,
+    ) -> ChatV2Result<LoadSessionResponse> {
+        let t0 = Instant::now();
+        debug!(
+            "[ChatV2::Repo] Loading session page: {} (limit={}, before={:?})",
+            session_id, limit, before_message_id
+        );
+
+        let session = Self::get_session_with_conn(conn, session_id)?
+            .ok_or_else(|| ChatV2Error::SessionNotFound(session_id.to_string()))?;
+
+        let (messages, has_more) =
+            Self::get_session_messages_page_with_conn(conn, session_id, limit, before_message_id)?;
+        let blocks =
+            Self::get_session_blocks_page_with_conn(conn, session_id, limit, before_message_id)?;
+        let state = Self::load_session_state_with_conn(conn, session_id)?;
+
+        info!(
+            "[ChatV2::Repo] Loaded session page: {} with {} messages and {} blocks (limit={}, before={:?}, has_more={}), total {} ms",
+            session_id,
+            messages.len(),
+            blocks.len(),
+            limit,
+            before_message_id,
+            has_more,
+            t0.elapsed().as_millis()
+        );
+
+        Ok(LoadSessionResponse {
+            session,
+            messages,
+            blocks,
+            state,
+            has_more: Some(has_more),
         })
     }
 

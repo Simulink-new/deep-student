@@ -12,6 +12,7 @@ import { skillDefaults } from '../../skills/skillDefaults';
 import { debugLog } from '@/debug-panel/debugMasterSwitch';
 import i18n from 'i18next';
 import { showOperationLockNotification } from './createChatStore';
+import { CHAT_MESSAGES_PAGE_SIZE } from '../constants';
 
 // ============================================================================
 // 已弃用工具检测 — 模式匹配 + 精确列表
@@ -717,7 +718,8 @@ export function createRestoreActions(
             sessionMetadata: session.metadata ?? null,
             sessionStatus: 'idle',
             isDataLoaded: true,
-            hasMoreMessages: false,  // 🆕 懒加载：初始全量加载，无更多历史
+            // 🆕 B3#1 懒加载：分页首屏时后端返回 hasMore=true；全量加载/旧后端无此字段则为 false
+            hasMoreMessages: response.hasMore ?? false,
             isLoadingMore: false,
             messageMap,
             messageOrder,
@@ -1073,8 +1075,9 @@ export function createRestoreActions(
               messageMap: mergedMessageMap,
               blocks: mergedBlocks,
               isLoadingMore: false,
-              // 如果返回的消息少于请求的，说明没有更多了
-              hasMoreMessages: messages.length >= 50, // 默认 page size
+              // 优先用后端 hasMore（limit+1 探测，可区分"恰好一页"与"还有更早"）；
+              // 旧后端无该字段时退化为"满页即可能还有"
+              hasMoreMessages: response.hasMore ?? (messages.length >= CHAT_MESSAGES_PAGE_SIZE),
             };
           });
 
