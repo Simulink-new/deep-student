@@ -926,6 +926,16 @@
 
 .ds-pdf__pages-virtualizer {
   width: 100%;
+  /* ★ task-048：视口是 flex column 容器（.ds-pdf__content-viewport），
+     虚拟列表内联高度（大文件可达数十万 px）远超容器时会被默认 flex-shrink:1
+     压塌 → 绝对定位的页行随容器一起塌陷，页面区空白、选择按钮全部消失。
+     显式禁止收缩，滚动溢出由 OverlayScrollbars 视口接管。 */
+  flex-shrink: 0;
+}
+
+/* ★ task-048：缩略图虚拟列表同理（其视口同为 flex column 布局） */
+.ds-thumbnails-virtualizer {
+  flex-shrink: 0;
 }
 
 .ds-pdf__page-row {

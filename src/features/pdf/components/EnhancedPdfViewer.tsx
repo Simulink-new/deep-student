@@ -137,6 +137,7 @@ const MemoPage = React.memo(Page);
 const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
   data,
   url,
+  fileName,
   defaultScale,
   initialPage = 0,
   style,
@@ -1116,6 +1117,32 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     onToggleSelectPage?.(pageNum);
   }, [onToggleSelectPage]);
 
+  // ★ task-048：单页渲染失败状态——旧实现里 react-pdf Page 渲染失败会永远停在
+  // 骨架屏（用户看到「整页空白且无任何提示」）。现在逐页记录并就地显示错误占位,
+  // 同时写前端日志（诊断包可见,定位「预览均为空白」类问题）
+  const [pageRenderErrors, setPageRenderErrors] = useState<ReadonlyMap<number, string>>(new Map());
+  const handlePageRenderError = useCallback((pageNum: number, error: Error) => {
+    const message = error?.message || String(error);
+    console.error(`[EnhancedPdfViewer] Page ${pageNum} render failed:`, error);
+    setPageRenderErrors((prev) => {
+      if (prev.has(pageNum)) return prev;
+      const next = new Map(prev);
+      next.set(pageNum, message);
+      return next;
+    });
+    void invoke('write_debug_logs', {
+      logs: [{
+        timestamp: new Date().toISOString(),
+        level: 'ERROR',
+        module: 'FRONTEND',
+        operation: 'PDF_PAGE_RENDER_ERROR',
+        data: { pageNum, message, fileName },
+        context: null,
+        stackTrace: error?.stack ?? null,
+      }],
+    }).catch(() => undefined);
+  }, [fileName]);
+
   // 双页模式下页面宽度
   const pageWidth = viewMode === 'dual' ? (containerWidth * scale) / 2 - 8 : containerWidth * scale;
   const pageHeight = pageWidth * 1.414;
@@ -1164,6 +1191,34 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
   });
 
   const pageVirtualItems = pageVirtualizer.getVirtualItems();
+
+  // ★ task-048 诊断：页面区空白自查——文档已加载但 2s 后虚拟列表仍拿不到
+  // 滚动元素（OverlayScrollbars initialized 未回调）或产出 0 行时,页面区会
+  // 无声空白（连选择按钮都不存在,点击自然无反应）。写日志让诊断包能定位。
+  useEffect(() => {
+    if (numPages === 0) return;
+    const timer = window.setTimeout(() => {
+      const issue = !pageScrollElement
+        ? 'scroll viewport not wired (OverlayScrollbars initialized callback missing)'
+        : pageVirtualItems.length === 0
+          ? 'virtualizer produced 0 rows'
+          : null;
+      if (!issue) return;
+      console.error('[EnhancedPdfViewer] PDF pages blank self-check failed:', issue);
+      void invoke('write_debug_logs', {
+        logs: [{
+          timestamp: new Date().toISOString(),
+          level: 'ERROR',
+          module: 'FRONTEND',
+          operation: 'PDF_PAGES_BLANK_SELF_CHECK',
+          data: { issue, numPages, fileName },
+          context: null,
+          stackTrace: null,
+        }],
+      }).catch(() => undefined);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [numPages, pageScrollElement, pageVirtualItems.length, fileName]);
 
   const getRowPages = useCallback((rowIndex: number) => {
     if (viewMode === 'dual') {
@@ -1295,15 +1350,29 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
         data-page-number={pageNum}
         style={{ transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined }}
       >
-        <MemoPage
-          pageNumber={pageNum}
-          width={pageWidth}
-          renderTextLayer={enableTextLayer}
-          renderAnnotationLayer={enableAnnotationLayer}
-          rotate={0}
-          devicePixelRatio={renderDpr}
-          loading={pageLoadingPlaceholder}
-        />
+        {pageRenderErrors.has(pageNum) ? (
+          // ★ task-048：渲染失败的页就地显示错误占位，不再无声停在骨架屏
+          <div
+            className="ds-pdf__page-loading-placeholder"
+            style={{ width: pageWidth, height: pageWidth * 1.414, flexDirection: 'column', gap: 8 }}
+          >
+            <WarningCircle size={28} className="text-destructive" />
+            <span style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))', padding: '0 16px', textAlign: 'center' }}>
+              {t('pdf:errors.page_render_failed', '第 {{page}} 页渲染失败', { page: pageNum })}
+            </span>
+          </div>
+        ) : (
+          <MemoPage
+            pageNumber={pageNum}
+            width={pageWidth}
+            renderTextLayer={enableTextLayer}
+            renderAnnotationLayer={enableAnnotationLayer}
+            rotate={0}
+            devicePixelRatio={renderDpr}
+            loading={pageLoadingPlaceholder}
+            onRenderError={(error: Error) => handlePageRenderError(pageNum, error)}
+          />
+        )}
 
         {/* 高亮覆盖层 — 坐标已归一化到 scale=1，渲染时乘以当前 scale */}
         {getPageHighlights(pageNum).map(hl => (
@@ -1354,8 +1423,10 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     pdfSettings.enableAnnotationLayerByDefault,
     getPageHighlights,
     handleTogglePageSelect,
+    handlePageRenderError,
     maxSelections,
     pageLoadingPlaceholder,
+    pageRenderErrors,
     pageWidth,
     renderDpr,
     rotation,

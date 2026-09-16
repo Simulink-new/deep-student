@@ -52,7 +52,7 @@ import type { ToolbarPreviewType } from './UnifiedPreviewToolbar';
 import { resolveTextbookPreviewType } from './textbookPreviewResolver';
 import { RichDocumentPreview } from './RichDocumentPreview';
 import { usePdfFocusListener } from './usePdfFocusListener';
-import { usePdfProcessingStore, getProcessingHint, TERMINAL_STAGES } from '@/features/pdf/stores/pdfProcessingStore';
+import { usePdfProcessingStore, getProcessingHint, TERMINAL_STAGES, isActiveProcessingStage } from '@/features/pdf/stores/pdfProcessingStore';
 import { MarkdownPreview } from '@/features/notes/preview/MarkdownPreview';
 import { getPdfProcessingStatus } from '@/api/vfsPdfProcessingApi';
 
@@ -643,7 +643,9 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
   const [ocrNoteLoading, setOcrNoteLoading] = useState(false);
   const [ocrNoteError, setOcrNoteError] = useState<string | null>(null);
   const ocrStatus = usePdfProcessingStore((s) => s.statusMap.get(node.sourceId));
-  const isOcrProcessing = ocrStatus?.stage === 'ocr_processing' || ocrStatus?.stage === 'page_compression' || ocrStatus?.stage === 'page_rendering';
+  // ★ task-048: 活动阶段改走统一集合——旧硬编码漏掉 text_extraction/vector_indexing,
+  // 向量索引期（大文件数十秒）被误判为「不在处理中」,调试条百分比消失、重OCR按钮可误点
+  const isOcrProcessing = isActiveProcessingStage(ocrStatus?.stage);
   const isOcrCompleted = ocrStatus?.stage === 'completed' || ocrStatus?.stage === 'completed_with_issues';
   const ocrReady = ocrStatus?.readyModes?.includes('ocr');
   // ★ OCR 内容已加载标记（ocrTextContent 非空即为已有 OCR 内容）
@@ -665,10 +667,21 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       // ★ 根据后端返回状态给用户反馈
       switch (response.status) {
         case 'ocr_started':
-          showGlobalNotification('info', t('textbook:ocr.started', 'OCR 识别已启动，请等待处理完成'));
-          break;
         case 'ocr_resumed':
-          showGlobalNotification('info', t('textbook:ocr.resumed', 'OCR 从检查点恢复，继续处理...'));
+          // ★ task-048: 启动/续跑确认后立即把 store 置为处理中——
+          // 进度条即时出现，不必等后端第一个进度事件（断点续跑时 store 里
+          // 可能还是挂载轮询灌入的 completed,update 的重跑分支会正确重置进度）
+          usePdfProcessingStore.getState().update(node.sourceId, {
+            stage: 'ocr_processing',
+            percent: 1,
+            readyModes: [],
+            mediaType: 'pdf',
+          });
+          if (response.status === 'ocr_started') {
+            showGlobalNotification('info', t('textbook:ocr.started', 'OCR 识别已启动，请等待处理完成'));
+          } else {
+            showGlobalNotification('info', t('textbook:ocr.resumed', 'OCR 从检查点恢复，继续处理...'));
+          }
           break;
         case 'already_running':
           showGlobalNotification('info', t('textbook:ocr.alreadyRunning', 'OCR 正在处理中，请稍候'));
@@ -1377,6 +1390,9 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       // 当 usePdfStreamFallback 激活时，传 filePath 以尝试降级加载。
       filePath={usePdfStreamFallback && filePath ? filePath : ''}
       fileName={node.name}
+      // ★ task-048: 补传 fileId(store 键 = sourceId)——此前缺失导致
+      // EnhancedPdfViewer 的 OCR 横幅（扫描件提示+启动按钮）在教材页永远不显示
+      fileId={node.sourceId}
       selectedPages={selectedPages}
       onPageSelectionChange={handlePageSelectionChange}
       onExportSelectedPages={handleExportSelectedPages}
@@ -1391,7 +1407,18 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
   );
 
   // ★ per-page OCR display content: 优先用按页加载的 MD
-  const ocrDisplayContent = ocrPageMd || (viewMode !== 'ocr' && viewMode !== 'split' ? ocrTextContent : null);
+  // ★ task-048 修复（OCR 文本预览空白根因）：旧逻辑只在 pdf 模式回退全量文本,
+  // ocr/split 模式下页 MD 加载失败(旧 schema/缺页/网络)即 content=null → 整页空白。
+  // 现在:页 MD 有正文 → 页 MD;页 MD 仅标题(空白页) → 标题+占位说明;
+  // 页 MD 不可用 → 回退全量 OCR 文本,绝不无声空白。
+  const ocrDisplayContent = useMemo(() => {
+    if (ocrPageMd) {
+      const body = ocrPageMd.replace(/^# Page \d+\s*/, '').trim();
+      if (body) return ocrPageMd;
+      return `${ocrPageMd.trimEnd()}\n\n*${t('textbook:ocr.emptyPage', '本页无 OCR 识别文本（可能是空白页或纯图片页）')}*`;
+    }
+    return ocrTextContent;
+  }, [ocrPageMd, ocrTextContent, t]);
 
   const renderOcrOnly = () => (
     <div className="flex-1 overflow-hidden flex flex-col">
@@ -1420,6 +1447,7 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
           file={usePdfStreamFallback ? null : pdfFile}
           filePath={usePdfStreamFallback && filePath ? filePath : ''}
           fileName={node.name}
+          fileId={node.sourceId}
           selectedPages={selectedPages}
           onPageSelectionChange={handlePageSelectionChange}
           onExportSelectedPages={handleExportSelectedPages}

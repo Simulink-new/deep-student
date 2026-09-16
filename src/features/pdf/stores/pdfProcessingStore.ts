@@ -115,6 +115,26 @@ const AUTO_CLEANUP_DELAY = 60_000;
 /** Terminal stages — files in these stages no longer need progress updates */
 export const TERMINAL_STAGES: ReadonlySet<ProcessingStage> = new Set(['completed', 'completed_with_issues', 'error']);
 
+/**
+ * Active (in-flight) stages — pipeline is actually running.
+ * task-048: 统一活动阶段集合，此前各视图各自硬编码（且漏掉 text_extraction /
+ * vector_indexing / image_compression），导致向量索引期（大文件可达数十秒）
+ * 进度条/处理中文案消失、重试按钮可误点。
+ */
+export const ACTIVE_STAGES: ReadonlySet<ProcessingStage> = new Set([
+  'text_extraction',
+  'page_rendering',
+  'page_compression',
+  'image_compression',
+  'ocr_processing',
+  'vector_indexing',
+]);
+
+/** 判断阶段是否为「流水线进行中」 */
+export function isActiveProcessingStage(stage: ProcessingStage | string | undefined | null): boolean {
+  return !!stage && ACTIVE_STAGES.has(stage as ProcessingStage);
+}
+
 const STAGE_ORDER: Record<ProcessingStage, number> = {
   pending: 0,
   text_extraction: 1,
@@ -141,6 +161,16 @@ function shouldAcceptUpdate(existing: PdfProcessingStatus | undefined, next: Pdf
   }
 
   if (next.stage === 'pending' && TERMINAL_STAGES.has(existing.stage)) {
+    return true;
+  }
+
+  // ★ task-048 修复（断点续传无进度条根因）：
+  // 挂载轮询会把 DB 的 completed 灌进 store（断点续跑的文件 DB 状态就是 completed），
+  // 续跑/重试事件的阶段（ocr_processing=4 / vector_indexing=5）序号低于 completed(6)，
+  // 旧守卫一律拒绝 → 整条重跑期间进度条永不更新。
+  // 终态 → 活动态的回退只可能来自「新一轮运行」（后端 generation 守卫已过滤旧任务的迟到事件），
+  // 必须放行；error 后重试同理解锁。
+  if (TERMINAL_STAGES.has(existing.stage) && ACTIVE_STAGES.has(next.stage)) {
     return true;
   }
 
@@ -177,13 +207,24 @@ export const usePdfProcessingStore = create<PdfProcessingStore>((set, get) => ({
     set(state => {
       const newMap = new Map(state.statusMap);
       const existing = newMap.get(fileId);
+      // ★ task-048: 终态 → 活动态 = 新一轮运行（断点续跑/重试）——
+      // 进度/就绪模式/错误必须从新一轮的事件重新累计，否则 percent 会被
+      // Math.max 钉死在旧终态的 100、readyModes 残留旧结果。
+      const isRerun = !!existing
+        && TERMINAL_STAGES.has(existing.stage)
+        && !!status.stage
+        && ACTIVE_STAGES.has(status.stage);
       const updated: PdfProcessingStatus = {
         stage: status.stage ?? existing?.stage ?? 'pending',
-        percent: Math.max(status.percent ?? 0, existing?.percent ?? 0),
-        readyModes: status.readyModes ?? existing?.readyModes ?? [],
-        currentPage: status.currentPage ?? existing?.currentPage,
+        percent: isRerun
+          ? (status.percent ?? 0)
+          : Math.max(status.percent ?? 0, existing?.percent ?? 0),
+        readyModes: isRerun
+          ? (status.readyModes ?? [])
+          : (status.readyModes ?? existing?.readyModes ?? []),
+        currentPage: status.currentPage ?? (isRerun ? undefined : existing?.currentPage),
         totalPages: status.totalPages ?? existing?.totalPages,
-        error: status.error ?? existing?.error,
+        error: isRerun ? status.error : (status.error ?? existing?.error),
         mediaType: status.mediaType ?? existing?.mediaType,
       };
       if (!shouldAcceptUpdate(existing, updated)) {

@@ -30,7 +30,7 @@ import { getBlobStreamUrl, fetchBlobStreamResponse, probeBlobStreamUrl } from '@
 import { getErrorMessage } from '@/utils/errorUtils';
 import { fileManager } from '@/utils/fileManager';
 import { showGlobalNotification } from '@/components/UnifiedNotification';
-import { usePdfProcessingStore } from '@/features/pdf/stores/pdfProcessingStore';
+import { usePdfProcessingStore, isActiveProcessingStage } from '@/features/pdf/stores/pdfProcessingStore';
 import { usePdfProcessingProgress } from '@/hooks/usePdfProcessingProgress'; // task-045: 事件喂养进度 store
 
 // PDF 预览组件
@@ -164,7 +164,9 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
   // ★ task-045: 挂载事件监听喂养进度 store(learning-hub 无 chat 输入栏时此前无人监听)
   usePdfProcessingProgress();
   const ocrStatus = usePdfProcessingStore((s) => s.statusMap.get(node.sourceId));
-  const isOcrProcessing = ocrStatus?.stage === 'ocr_processing' || ocrStatus?.stage === 'page_compression' || ocrStatus?.stage === 'page_rendering';
+  // ★ task-048: 活动阶段走统一集合（旧硬编码漏 text_extraction/vector_indexing,
+  // 导致索引期"开始 OCR"横幅错误复现、进度横幅消失）
+  const isOcrProcessing = isActiveProcessingStage(ocrStatus?.stage);
   const isOcrCompleted = ocrStatus?.stage === 'completed' || ocrStatus?.stage === 'completed_with_issues';
   const ocrReady = ocrStatus?.readyModes?.includes('ocr');
   // ★ 历史 PDF 重处理：未 OCR 的 PDF 可以手动触发
@@ -175,7 +177,20 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
     if (!node.sourceId || isOcrTriggering) return;
     setIsOcrTriggering(true);
     try {
-      await invoke('vfs_ensure_ocr_pipeline', { fileId: node.sourceId, force: true });
+      const response = await invoke<{ status: string; message?: string }>(
+        'vfs_ensure_ocr_pipeline',
+        { fileId: node.sourceId, force: true },
+      );
+      // ★ task-048: 启动/续跑确认后立即置 store 为处理中,进度横幅即时出现
+      // (store 的重跑分支会正确处理 completed → ocr_processing 的回退重置)
+      if (response.status === 'ocr_started' || response.status === 'ocr_resumed') {
+        usePdfProcessingStore.getState().update(node.sourceId, {
+          stage: 'ocr_processing',
+          percent: 1,
+          readyModes: [],
+          mediaType: 'pdf',
+        });
+      }
       showGlobalNotification('info', t('learningHub:file.ocrStarted', 'OCR 处理已启动'));
     } catch (err) {
       console.error('[FileContentView] Failed to start OCR:', err);
@@ -600,7 +615,9 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
                 focusRequest={focusRequest}
                 onFocusHandled={handleFocusHandled}
                 resourcePath={node.path}
-                fileId={node.id}
+                // ★ task-048: store 以 sourceId 为键——旧传 node.id 导致查看器内
+                // OCR 状态查询永远 miss（横幅常驻）且 ensure 用错文件 id
+                fileId={node.sourceId}
               />
             </div>
           </div>
