@@ -283,6 +283,7 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
   // 使用统一的 PDF 加载 Hook（支持缓存、去重、大文件检测）
   const {
     file: pdfFile,
+    streamUrl: pdfStreamUrl,
     loading: pdfLoading,
     error: pdfError,
     isLargeFile: isPdfLargeFile,
@@ -293,6 +294,9 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
     filePath: effectiveFilePath,
     cacheKey: `${node.id}:${node.updatedAt || ''}`,
     enabled: isPdf && !effectiveFilePath, // 只有当是 PDF 且没有可用 filePath 时才从数据库加载
+    // ★ task-051: 直连流式模式——blob 存在时不整文件下载,
+    // 直接把 pdfstream URL 交给 PDF.js Range 加载(大扫描书秒开)
+    preferStreamUrl: true,
   });
 
   // ★ 分类后的 PDF 错误（结构化信息，用于丰富错误 UI）
@@ -975,7 +979,7 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
 
   // ★ PDF 初始态 spinner 超时检测（10 秒后显示提示 + 重试按钮，避免无限旋转）
   useEffect(() => {
-    if (!isPdf || effectiveFilePath || pdfFile || pdfLoading || pdfError) {
+    if (!isPdf || effectiveFilePath || pdfFile || pdfStreamUrl || pdfLoading || pdfError) {
       setPdfInitTimedOut(false);
       return;
     }
@@ -983,13 +987,13 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       setPdfInitTimedOut(true);
     }, 10_000);
     return () => window.clearTimeout(timer);
-  }, [isPdf, effectiveFilePath, pdfFile, pdfLoading, pdfError]);
+  }, [isPdf, effectiveFilePath, pdfFile, pdfStreamUrl, pdfLoading, pdfError]);
 
   // ★ 移除 filePath 为空时的硬性错误，改为在内容加载失败时显示错误
   // 因为从 attachments 迁移的文件可能没有 filePath，但可以通过 vfs_get_attachment_content 获取内容
   
-  // PDF 文件：如果没有 filePath 且没有 pdfFile，显示加载中或错误
-  if (isPdf && !effectiveFilePath && !pdfFile) {
+  // PDF 文件：如果没有 filePath 且没有 pdfFile/pdfStreamUrl，显示加载中或错误
+  if (isPdf && !effectiveFilePath && !pdfFile && !pdfStreamUrl) {
     if (pdfLoading) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -1384,6 +1388,8 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
   const renderPdfOnly = () => (
     <TextbookPdfViewer
       file={usePdfStreamFallback ? null : pdfFile}
+      // ★ task-051: 直连流式 URL(file 优先,其次 streamUrl,最后 filePath)
+      streamUrl={usePdfStreamFallback ? null : pdfStreamUrl}
       // ★ PDF-403 修复：不传 filePath 给教材 PDF，避免触发 pdfstream:// 协议导致 403
       // file 优先于 filePath（TextbookPdfViewer 内部逻辑：file 存在时使用 Blob URL，
       // 仅 file 为 null 时才回退到 filePath 的 pdfstream://）
@@ -1445,6 +1451,7 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
       <div className="w-[60%] overflow-hidden border-r border-border">
         <TextbookPdfViewer
           file={usePdfStreamFallback ? null : pdfFile}
+          streamUrl={usePdfStreamFallback ? null : pdfStreamUrl}
           filePath={usePdfStreamFallback && filePath ? filePath : ''}
           fileName={node.name}
           fileId={node.sourceId}

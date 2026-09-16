@@ -156,17 +156,21 @@ pub fn handle_asset_protocol(
     }
 
     // 安全检查 2：文件类型限制（perf-audit task-035/A4#1）
-    // - VFS blobs 目录内的文件（hash 命名、带扩展名、内容受 VFS 管控）：放行全部扩展名
+    // - VFS blob 存储目录内的文件（hash 命名、内容受 VFS 管控）：放行全部扩展名
     //   ——供图片/富文档/音视频视图经 pdfstream:// 流式加载，消灭整文件 base64 过 IPC(20MB→54MB 拷贝/次)
     // - 其余白名单目录：维持仅 .pdf（大小写不敏感，兼容 Windows 上的 .PDF），安全面不变
+    //
+    // ★ task-051 修复：VFS blob 目录实际名为 `vfs_blobs`（非 `blobs`），
+    //   旧的 ends_with("/blobs") 永不命中 → 该放行规则形同虚设,
+    //   所有非 .pdf 扩展名的 blob(如导入时丢失扩展名的 .bin PDF)一律 403。
     let is_pdf = canonical_path
         .extension()
         .and_then(|s| s.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("pdf"))
         .unwrap_or(false);
     let in_blobs_dir = allowed_dirs.iter().any(|dir| {
-        dir.to_string_lossy().replace('\\', "/").ends_with("/blobs")
-            && canonical_path.starts_with(dir)
+        let d = dir.to_string_lossy().replace('\\', "/");
+        (d.ends_with("/blobs") || d.ends_with("/vfs_blobs")) && canonical_path.starts_with(dir)
     });
     if !is_pdf && !in_blobs_dir {
         warn!(

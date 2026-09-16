@@ -25,6 +25,9 @@ interface TextbookPdfViewerProps {
   file: File | null;
   filePath: string; // 教材的绝对路径
   fileName: string; // 教材文件名
+  /** ★ task-051: 直连流式 URL(pdfstream://blob 路径)——优先于 filePath,
+   *  让 PDF.js 原生 Range 加载,免去整文件下载(大文件秒开) */
+  streamUrl?: string | null;
   selectedPages: Set<number>; // 已选中的页码集合
   onPageSelectionChange: (pages: Set<number>) => void;
   /** @deprecated 导出功能已移除，保留接口兼容性 */
@@ -49,6 +52,7 @@ export const TextbookPdfViewer: React.FC<TextbookPdfViewerProps> = ({
   file,
   filePath,
   fileName,
+  streamUrl,
   selectedPages,
   onPageSelectionChange,
   maxSelections = 10,
@@ -99,6 +103,10 @@ export const TextbookPdfViewer: React.FC<TextbookPdfViewerProps> = ({
       }
       return fileBlobUrlRef.current as string;
     }
+    // ★ task-051: blob 直连流式 URL(vfs_blobs 路径在白名单内,Range 加载)
+    if (streamUrl) {
+      return streamUrl;
+    }
     // 如果有 filePath，转换为 pdfstream:// 协议 URL
     if (filePath) {
       // 使用 Tauri 官方 API 构建跨平台协议 URL
@@ -107,7 +115,7 @@ export const TextbookPdfViewer: React.FC<TextbookPdfViewerProps> = ({
       return convertFileSrc(filePath, 'pdfstream');
     }
     return '';
-  }, [file, filePath]);
+  }, [file, filePath, streamUrl]);
 
 
   // 渲染追踪

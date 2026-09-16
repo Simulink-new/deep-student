@@ -135,6 +135,7 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
   // 使用统一的 PDF 加载 Hook（支持缓存、去重、大文件检测）
   const {
     file: pdfFile,
+    streamUrl: pdfStreamUrl,
     loading: pdfLoading,
     error: pdfError,
     isLargeFile: isPdfLargeFile,
@@ -143,6 +144,9 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
     fileName: node.name,
     cacheKey: `${node.id}:${node.updatedAt || ''}`,
     enabled: isPdf,
+    // ★ task-051: 直连流式模式——blob 存在时不整文件下载,
+    // 直接把 pdfstream URL 交给 PDF.js Range 加载(大扫描书秒开)
+    preferStreamUrl: true,
   });
   
   // PDF 页面选择状态
@@ -557,7 +561,7 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
           </div>
         );
       }
-      if (pdfFile) {
+      if (pdfFile || pdfStreamUrl) {
         return (
           <div className="flex flex-col h-full">
             {/* ★ 历史 PDF 重处理：未 OCR 的文件显示"开始 OCR"按钮 */}
@@ -606,6 +610,7 @@ const FileContentViewInner: React.FC<ContentViewProps> = ({
             <div className="flex-1 min-h-0">
               <TextbookPdfViewer
                 file={pdfFile}
+                streamUrl={pdfStreamUrl}
                 filePath=""
                 fileName={node.name}
                 selectedPages={selectedPages}

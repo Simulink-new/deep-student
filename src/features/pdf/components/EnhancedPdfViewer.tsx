@@ -373,8 +373,21 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     setNumPages(pages);
     setIsLoading(false);
     setLoadError(null);
+    // ★ task-051 诊断：成功也落盘一行——与失败/超时日志对照,
+    // 可区分「根本没发起加载」与「加载了但渲染空白」
+    void invoke('write_debug_logs', {
+      logs: [{
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        module: 'FRONTEND',
+        operation: 'PDF_DOCUMENT_LOAD_SUCCESS',
+        data: { numPages: pages, fileName },
+        context: null,
+        stackTrace: null,
+      }],
+    }).catch(() => undefined);
     onDocumentLoad?.(pages);
-  }, [onDocumentLoad]);
+  }, [onDocumentLoad, fileName]);
 
   // 获取 PDF 文档对象用于目录和搜索
   const handleDocumentLoadSuccessWithDoc = useCallback((pdf: PDFDocumentProxy) => {
@@ -1008,13 +1021,26 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     console.error('PDF load error:', error);
     setIsLoading(false);
     const errMsg = error.message || '';
+    // ★ task-051 诊断：console.error 不落盘(前端日志只捕获 window.onerror),
+    // Document 级失败此前在诊断包里完全不可见——必须显式写入
+    void invoke('write_debug_logs', {
+      logs: [{
+        timestamp: new Date().toISOString(),
+        level: 'ERROR',
+        module: 'FRONTEND',
+        operation: 'PDF_DOCUMENT_LOAD_ERROR',
+        data: { message: errMsg, name: error.name, fileName },
+        context: null,
+        stackTrace: error.stack ?? null,
+      }],
+    }).catch(() => undefined);
     // Check for HTTP 403 / Forbidden errors and show a user-friendly message
     if (errMsg.includes('403') || errMsg.toLowerCase().includes('forbidden') || errMsg.includes('Unexpected server response') && errMsg.includes('403')) {
       setLoadError(t('pdf:errors.load_failed_403', 'PDF 加载失败: 服务器返回 403 禁止访问。该文件可能需要认证或权限，请检查链接是否有效或尝试重新下载。'));
     } else {
       setLoadError(error.message || t('pdf:errors.load_failed', 'PDF 加载失败，请重试'));
     }
-  }, [t]);
+  }, [t, fileName]);
 
   const handlePrevPage = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
   const handleNextPage = useCallback(() => goToPage(currentPage + 1), [currentPage, goToPage]);
@@ -1219,6 +1245,33 @@ const EnhancedPdfViewerImpl: React.FC<EnhancedPdfViewerProps> = ({
     }, 2000);
     return () => window.clearTimeout(timer);
   }, [numPages, pageScrollElement, pageVirtualItems.length, fileName]);
+
+  // ★ task-051 诊断：Document 加载看门狗——file 源就位后 20s 内既未成功
+  // (numPages===0) 也未报错(loadError 为空) 即「无声挂起」(协议挂起/worker 崩溃/
+  // Range 请求死锁),此前完全无迹可查。与 PDF_PAGES_BLANK_SELF_CHECK 互补:
+  // 那个覆盖「加载成功但页面空白」,这个覆盖「加载从未完成」。
+  useEffect(() => {
+    if (!file || numPages > 0 || loadError) return;
+    const timer = window.setTimeout(() => {
+      console.error('[EnhancedPdfViewer] PDF document load timeout (20s, no success/error):', fileName);
+      void invoke('write_debug_logs', {
+        logs: [{
+          timestamp: new Date().toISOString(),
+          level: 'ERROR',
+          module: 'FRONTEND',
+          operation: 'PDF_DOCUMENT_LOAD_TIMEOUT',
+          data: {
+            fileName,
+            sourceType: typeof file === 'string' ? 'url' : 'data',
+            urlHint: typeof file === 'string' ? file.slice(0, 120) : null,
+          },
+          context: null,
+          stackTrace: null,
+        }],
+      }).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [file, numPages, loadError, fileName]);
 
   const getRowPages = useCallback((rowIndex: number) => {
     if (viewMode === 'dual') {

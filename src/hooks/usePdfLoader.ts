@@ -64,6 +64,10 @@ export interface PdfLoaderState {
   isLargeFile: boolean;
   /** 文件大小（字节） */
   fileSize: number;
+  /** ★ task-051: 直连流式 URL(pdfstream://)——preferStreamUrl 模式下不下载整文件,
+   *  把 URL 直接交给 PDF.js 原生 Range 加载(协议本身支持 Range/206)。
+   *  大文件(百 MB 级扫描书)首屏从「整文件下载数十秒」降为「秒开」。 */
+  streamUrl: string | null;
   /** 重试加载 */
   retry: () => void;
   /** 当前重试次数（0=未重试） */
@@ -90,6 +94,9 @@ export interface UsePdfLoaderOptions {
   originalPath?: string;
   /** 大文件熔断时回调：通知父组件切换为 pdfstream:// 协议加载 */
   onNeedStreamFallback?: (originalPath: string) => void;
+  /** ★ task-051: 直连流式模式——有 blob 时不下载整文件,
+   *  返回 streamUrl 供 PDF.js 原生 Range 加载。教科书/文件查看器应开启。 */
+  preferStreamUrl?: boolean;
 }
 
 /**
@@ -105,8 +112,10 @@ export function usePdfLoader({
   enabled = true,
   originalPath,
   onNeedStreamFallback,
+  preferStreamUrl = false,
 }: UsePdfLoaderOptions): PdfLoaderState {
   const [file, setFile] = useState<File | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +146,7 @@ export function usePdfLoader({
     if (filePath) {
       abortControllerRef.current = null;
       setFile(null);
+      setStreamUrl(null);
       setLoading(false);
       setError(null);
       setIsLargeFile(false);
@@ -180,6 +190,22 @@ export function usePdfLoader({
       }
 
       if (streamUrl) {
+        // ★ task-051: 直连流式模式——不下载整文件,把 pdfstream URL 交给
+        // PDF.js 原生 Range 加载(pdfstream 协议本就为 Range/206 设计)。
+        // 旧路径对 175MB 级扫描书会先整文件下载数十秒再解析,用户感知为「打不开」。
+        if (preferStreamUrl) {
+          debugLog.log('[usePdfLoader] Direct stream mode, PDF.js will range-load:', resolvedCacheKey);
+          setStreamUrl(streamUrl);
+          setFile(null);
+          setLoading(false);
+          setError(null);
+          setRetryAttempt(0);
+          // 与下载路径一致:成功获得可读源后触发 OCR 自愈/续跑
+          invoke('vfs_ensure_ocr_pipeline', { fileId: nodeId }).catch((ocrErr: unknown) => {
+            debugLog.warn('[usePdfLoader] OCR pipeline trigger failed (non-fatal):', ocrErr);
+          });
+          return;
+        }
         try {
           const streamResp = await fetchBlobStreamResponse(streamUrl, controller.signal);
           if (controller.signal.aborted || requestId !== requestIdRef.current) {
@@ -337,6 +363,7 @@ export function usePdfLoader({
   useEffect(() => {
     if (!enabled) {
       setFile(null);
+      setStreamUrl(null);
       setLoading(false);
       setError(null);
       setIsLargeFile(false);
@@ -399,12 +426,14 @@ export function usePdfLoader({
     setRetryAttempt(0);
     lastLoadedKeyRef.current = null;
     fileRef.current = null;
+    setStreamUrl(null);
     setError(null);
     setLoading(false);
   }, []);
 
   return {
     file,
+    streamUrl,
     loading,
     error,
     isLargeFile,
