@@ -1363,11 +1363,26 @@ pub async fn vfs_ensure_ocr_pipeline(
     };
 
     // ★★ 诊断日志 — 记录文件 OCR 状态
+    // ★ task-049: 增加 preview_pages/ocr_completed —— 「preview 截断」与「半成品检查点」
+    // 是本类故障的两个判据,日志中应直接可见。
+    let diag_preview_pages = file
+        .preview_json
+        .as_deref()
+        .and_then(|pj| serde_json::from_str::<serde_json::Value>(pj).ok())
+        .and_then(|v| v.get("pages").and_then(|p| p.as_array()).map(|a| a.len()));
+    let diag_ocr_completed = file
+        .ocr_pages_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v.get("completedAt").and_then(|c| c.as_str()).map(|s| !s.is_empty()))
+        .unwrap_or(false);
     info!(
-        "[OCR_DIAG] vfs_ensure_ocr_pipeline called: file_id={}, has_ocr_json={}, has_preview={}, text_len={}, page_count={:?}, processing_status={:?}",
+        "[OCR_DIAG] vfs_ensure_ocr_pipeline called: file_id={}, has_ocr_json={}, ocr_completed={}, has_preview={}, preview_pages={:?}, text_len={}, page_count={:?}, processing_status={:?}",
         file_id,
         file.ocr_pages_json.as_ref().map(|s| !s.is_empty() && s != "{}").unwrap_or(false),
+        diag_ocr_completed,
         file.preview_json.as_ref().map(|s| !s.is_empty() && s != "{}").unwrap_or(false),
+        diag_preview_pages,
         file.extracted_text.as_ref().map(|t| t.len()).unwrap_or(0),
         file.page_count,
         file.processing_status,
@@ -1446,6 +1461,38 @@ pub async fn vfs_ensure_ocr_pipeline(
                         message: Some("OCR 流水线已强制重启（忽略已有结果）".to_string()),
                     });
                 }
+                // ★ task-049 修复：历史截断 preview 自愈。
+                // 2026-06 前旧版渲染有 50 页上限,遗留文件 OCR「完成」但只有前 50 页。
+                // completedAt 已落库使下方 completed 分支直接返回,残缺被永久固化。
+                // 检测 preview 页数 < 真实页数 → 重启流水线(非 force:
+                // 流水线内会全量重渲染 preview 并以续跑模式只补缺失页)。
+                let preview_page_count = file
+                    .preview_json
+                    .as_deref()
+                    .and_then(|pj| serde_json::from_str::<serde_json::Value>(pj).ok())
+                    .and_then(|v| v.get("pages").and_then(|p| p.as_array()).map(|a| a.len()));
+                let real_pages = file.page_count.map(|p| p as usize).unwrap_or(0);
+                if let Some(pp) = preview_page_count {
+                    if real_pages > 0 && pp < real_pages {
+                        info!(
+                            "[Textbooks] Stale preview for file {} ({}/{} pages), restarting pipeline to complete remaining pages",
+                            file_id, pp, real_pages
+                        );
+                        pdf_processing_service
+                            .start_pipeline(&file_id, Some(ProcessingStage::OcrProcessing))
+                            .await
+                            .map_err(|e| {
+                                AppError::database(format!("启动 OCR 补全流水线失败: {}", e))
+                            })?;
+                        return Ok(VfsEnsureOcrPipelineResponse {
+                            status: "ocr_resumed".to_string(),
+                            message: Some(format!(
+                                "检测到页面渲染不完整({}/{} 页),已启动补全流水线",
+                                pp, real_pages
+                            )),
+                        });
+                    }
+                }
                 // ★ 检查 OCR 笔记是否存在，如果缺失则补建
                 let note_id = pdf_processing_service.ensure_ocr_note(&file_id).await;
                 if let Some(ref nid) = note_id {
@@ -1469,15 +1516,13 @@ pub async fn vfs_ensure_ocr_pipeline(
                 "[Textbooks] Found incomplete OCR checkpoint for file {}, resuming pipeline",
                 file_id
             );
-            // ★ Fix 3: 标记强制 OCR，标记将在 run_pdf_pipeline_internal 的
-            // ForceOcrGuard 中自动清理（包括任何非正常退出路径）
-            pdf_processing_service.mark_force_ocr(&file_id);
+            // ★ task-049: 续跑不标记 force_ocr —— force 会让 stage-3 丢弃检查点全页重跑,
+            // 毁掉断点续传(旧实现在此标 force,与「用户手动重新 OCR」共用同一标记)。
+            // stage-3 门控现已按 completedAt 区分完成态,半成品检查点会自动重开 OCR 阶段。
             pdf_processing_service
                 .start_pipeline(&file_id, Some(ProcessingStage::OcrProcessing))
                 .await
                 .map_err(|e| {
-                    // start_pipeline 失败（任务生成前）时手动清理
-                    pdf_processing_service.unmark_force_ocr(&file_id);
                     AppError::database(format!("启动 OCR 流水线失败: {}", e))
                 })?;
 

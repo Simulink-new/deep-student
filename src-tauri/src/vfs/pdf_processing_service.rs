@@ -795,10 +795,14 @@ impl PdfProcessingService {
 
         // 获取文件信息
         let conn = self.db.get_conn_safe()?;
-        let (page_count, has_extracted_text, extracted_text_len, has_preview, has_ocr): (
+        // ★ task-049 修复：区分 has_ocr（检查点存在）与 ocr_completed（completedAt 非空）。
+        // 纯存在性判断会把「OCR 到一半被杀」的半成品检查点误判为已完成,
+        // stage-3 门控因此永久跳过 OCR —— 残缺数据被固化为「完成」。
+        let (page_count, has_extracted_text, extracted_text_len, has_preview, has_ocr, mut ocr_completed): (
             Option<i32>,
             bool,
             i64,
+            bool,
             bool,
             bool,
         ) = conn
@@ -808,7 +812,8 @@ impl PdfProcessingService {
                        extracted_text IS NOT NULL,
                        COALESCE(LENGTH(extracted_text), 0),
                        preview_json IS NOT NULL,
-                       ocr_pages_json IS NOT NULL
+                       ocr_pages_json IS NOT NULL,
+                       COALESCE(json_extract(ocr_pages_json, '$.completedAt'), '') != ''
                 FROM files WHERE id = ?1
                 "#,
                 params![file_id],
@@ -819,6 +824,7 @@ impl PdfProcessingService {
                         row.get(2)?,
                         row.get::<_, i32>(3)? != 0,
                         row.get::<_, i32>(4)? != 0,
+                        row.get::<_, i32>(5)? != 0,
                     ))
                 },
             )
@@ -836,7 +842,9 @@ impl PdfProcessingService {
             ready_modes.push("text".to_string());
         }
         // 注意：不再根据 has_preview 直接添加 image，需要检查压缩状态
-        if has_ocr {
+        // ★ task-049：半成品检查点(completedAt 为空)不宣称 ocr 就绪,
+        // 让前端正确显示「OCR 未完成」而不是拿 4/413 页的残缺数据冒充完成。
+        if ocr_completed {
             ready_modes.push("ocr".to_string());
         }
 
@@ -866,6 +874,51 @@ impl PdfProcessingService {
                 )
                 .optional()
                 .map_err(|e| VfsError::Database(format!("Failed to get preview_json: {}", e)))?;
+
+            // ★ task-049 修复：历史 50 页截断 preview 自愈。
+            // 2026-06 前旧版渲染存在页数上限,遗留了大量「preview 50 页 / 真实数百页」
+            // 的文件;其 OCR 也只有前 50 页且 completedAt 已落库(被误认为完成)。
+            // 检测:缓存 preview 页数 < 真实 page_count → 全量重渲染,
+            // 并使外层 ocr_completed 失效以重开 stage-3 门控(续跑模式补齐缺页,
+            // 已有页结果保留)。重渲染失败时保留旧 preview,不影响既有功能。
+            // 注意:ocr_completed 不可遮蔽(shadow)—— stage-3 门控读取的是外层变量。
+            let mut preview_json = preview_json;
+            if total_pages > 0 {
+                let cached_pages = preview_json
+                    .as_deref()
+                    .and_then(|pj| serde_json::from_str::<PdfPreviewJson>(pj).ok())
+                    .map(|p| p.pages.len())
+                    .unwrap_or(0);
+                if cached_pages > 0 && cached_pages < total_pages {
+                    warn!(
+                        "[PdfProcessingService] Stale preview detected for file {}: {} cached pages < {} real pages, regenerating full preview",
+                        file_id, cached_pages, total_pages
+                    );
+                    match self.regenerate_pdf_preview(file_id).await {
+                        Ok(Some((new_pj, real_pages))) => {
+                            info!(
+                                "[PdfProcessingService] Regenerated full preview for file {}: {} pages (was {}), OCR reopened for missing pages",
+                                file_id, real_pages, cached_pages
+                            );
+                            preview_json = Some(new_pj);
+                            total_pages = real_pages;
+                            ocr_completed = false;
+                        }
+                        Ok(None) => {
+                            warn!(
+                                "[PdfProcessingService] Preview regeneration returned no pages for file {}, keeping stale preview",
+                                file_id
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "[PdfProcessingService] Preview regeneration failed for file {}: {}, keeping stale preview",
+                                file_id, e
+                            );
+                        }
+                    }
+                }
+            }
 
             if let Some(ref pj) = preview_json {
                 // 检查是否已经有压缩版本
@@ -984,7 +1037,10 @@ impl PdfProcessingService {
                 && !ocr_config.skip_for_multimodal
                 && extracted_text_len < ocr_config.pdf_text_threshold);
 
-        if start_stage <= ProcessingStage::OcrProcessing && !has_ocr {
+        // ★ task-049 修复：门控改用 ocr_completed(completedAt 非空)而非 has_ocr(纯存在性),
+        // 并放行 is_force_ocr。旧门控 `!has_ocr` 使半成品检查点(4/413 页)与用户手动
+        // 「重新 OCR」的强制标记全部失效 —— stage-3 永远无法重入,残缺数据被固化为完成态。
+        if start_stage <= ProcessingStage::OcrProcessing && (!ocr_completed || is_force_ocr) {
             if !should_run_pdf_ocr {
                 info!(
                     "[PdfProcessingService] OCR skipped for file {}: force_ocr={}, enabled={}, ocr_scanned_pdf={}, skip_for_multimodal={}, text_len={}, threshold={}",
@@ -1052,6 +1108,7 @@ impl PdfProcessingService {
                     })?;
 
                 // 如果没有缓存 preview_json（历史文件），动态生成
+                // ★ task-049: 提取为 regenerate_pdf_preview helper,与压缩块的截断自愈共用
                 let preview_json = if let Some(pj) = preview_json {
                     Some(pj)
                 } else {
@@ -1059,144 +1116,13 @@ impl PdfProcessingService {
                         "[PdfProcessingService] No cached preview for file {}, attempting dynamic generation...",
                         file_id
                     );
-
-                    // 1. 获取 PDF 文件字节：优先 blob_hash，其次 original_path
-                    let pdf_bytes: Option<Vec<u8>> = {
-                        let (blob_hash, original_path): (Option<String>, Option<String>) = conn
-                            .query_row(
-                                "SELECT blob_hash, original_path FROM files WHERE id = ?1",
-                                params![file_id],
-                                |row| Ok((row.get(0)?, row.get(1)?)),
-                            )
-                            .optional()
-                            .map_err(|e| {
-                                VfsError::Database(format!("Failed to get file source info: {}", e))
-                            })?
-                            .unwrap_or((None, None));
-
-                        if let Some(ref hash) = blob_hash {
-                            let blobs_dir = self.db.blobs_dir().to_path_buf();
-                            match VfsBlobRepo::get_blob_path_with_conn(&conn, &blobs_dir, hash)?
-                                .and_then(|path| std::fs::read(&path).ok())
-                            {
-                                Some(bytes) => Some(bytes),
-                                None => {
-                                    warn!(
-                                        "[PdfProcessingService] Blob not found for hash: {}",
-                                        hash
-                                    );
-                                    None
-                                }
-                            }
-                        } else if let Some(ref path_str) = original_path {
-                            match std::fs::read(path_str) {
-                                Ok(bytes) => Some(bytes),
-                                Err(e) => {
-                                    warn!(
-                                        "[PdfProcessingService] Failed to read original path {}: {}",
-                                        path_str, e
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            warn!(
-                                "[PdfProcessingService] Neither blob_hash nor original_path available for file: {}",
-                                file_id
-                            );
-                            None
-                        }
-                    };
-
-                    match pdf_bytes {
-                        Some(bytes) => {
-                            let bytes_len = bytes.len(); // snapshot before bytes is moved into spawn_blocking
-                            let config = PdfPreviewConfig::default();
-                            let blobs_dir = self.db.blobs_dir().to_path_buf();
-                            let db_clone = self.db.clone();
-
-                            // render_pdf_preview_with_progress 是 CPU 密集型操作，在阻塞线程中运行
-                            let gen_result =
-                                tokio::task::spawn_blocking(move || {
-                                    let conn = db_clone.get_conn_safe()?;
-                                    render_pdf_preview_with_progress(
-                                        &conn,
-                                        &blobs_dir,
-                                        &bytes,
-                                        &config,
-                                        |_, _| {},
-                                    )
-                                })
-                                .await
-                                .map_err(|e| {
-                                    VfsError::Other(format!(
-                                        "Preview generation task panicked: {}",
-                                        e
-                                    ))
-                                })
-                                .and_then(|inner| inner);
-
-                            match gen_result {
-                                Ok(result) => {
-                                    if let Some(pj_ref) = &result.preview_json {
-                                        let pj_str = serde_json::to_string(pj_ref)
-                                            .map_err(|e| {
-                                                VfsError::Serialization(format!(
-                                                    "Failed to serialize preview_json: {}",
-                                                    e
-                                                ))
-                                            })?;
-
-                                        // 缓存到 files 表
-                                        conn.execute(
-                                            "UPDATE files SET preview_json = ?1, extracted_text = ?2, page_count = ?3 WHERE id = ?4",
-                                            params![
-                                                pj_str,
-                                                result.extracted_text.as_deref(),
-                                                result.page_count as i32,
-                                                file_id,
-                                            ],
-                                        ).map_err(|e| {
-                                            VfsError::Database(format!(
-                                                "Failed to cache preview_json: {}",
-                                                e
-                                            ))
-                                        })?;
-
-                                        // 更新 total_pages，使后续进度显示正确
-                                        total_pages = result.page_count;
-
-                                        info!(
-                                            "[PdfProcessingService] Dynamic preview generated and cached for file: {} ({} pages, {} bytes PDF)",
-                                            file_id, result.page_count, bytes_len
-                                        );
-
-                                        Some(pj_str)
-                                    } else {
-                                        warn!(
-                                            "[PdfProcessingService] Dynamic preview generation returned no pages for file: {}",
-                                            file_id
-                                        );
-                                        None
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "[PdfProcessingService] Dynamic preview generation failed for file {}: {}",
-                                        file_id, e
-                                    );
-                                    None
-                                }
-                            }
-                        }
-                        None => {
-                            warn!(
-                                "[PdfProcessingService] Cannot generate preview: unable to read PDF content for file: {}",
-                                file_id
-                            );
-                            None
-                        }
+                    // 保留原语义:DB 缓存写失败传播为流水线错误;渲染失败/无字节则跳过 OCR
+                    let regenerated = self.regenerate_pdf_preview(file_id).await?;
+                    if let Some((_, real_pages)) = &regenerated {
+                        // 更新 total_pages，使后续进度显示正确
+                        total_pages = *real_pages;
                     }
+                    regenerated.map(|(pj_str, _)| pj_str)
                 };
 
                 if let Some(ref pj) = preview_json {
@@ -1246,8 +1172,9 @@ impl PdfProcessingService {
         }
 
         // ★ Fix 3: force_ocr 标记由 Fix 3 守卫在函数底部自动清理
-        // 如果已有 OCR，添加到就绪模式
-        if has_ocr && !ready_modes.contains(&"ocr".to_string()) {
+        // 如果 OCR 真正完成(completedAt 非空),添加到就绪模式
+        // ★ task-049：与初始 ready_modes 一致,半成品检查点不宣称 ocr 就绪
+        if ocr_completed && !ready_modes.contains(&"ocr".to_string()) {
             ready_modes.push("ocr".to_string());
         }
 
@@ -3325,6 +3252,135 @@ impl PdfProcessingService {
     // Stage 3: OCR 处理（复用预渲染图片）
     // ========================================================================
 
+    /// ★ task-049 提取：全量渲染 PDF 预览并缓存到 files 表
+    ///
+    /// 供两处使用:
+    /// 1. stage-3 前无缓存 preview(历史文件)的动态生成;
+    /// 2. 压缩块中检测到历史截断 preview(旧版 50 页上限遗留)后的全量重渲染自愈。
+    ///
+    /// 返回 Ok(Some((preview_json_str, page_count))) 表示成功;
+    /// Ok(None) 表示无法读取 PDF 字节或渲染失败(调用方应跳过/保留旧数据);
+    /// Err 仅用于 DB 缓存写失败(保持原 stage-3 路径的错误传播语义)。
+    async fn regenerate_pdf_preview(&self, file_id: &str) -> VfsResult<Option<(String, usize)>> {
+        // 1. 获取 PDF 文件字节：优先 blob_hash，其次 original_path
+        let pdf_bytes: Option<Vec<u8>> = {
+            let conn = self.db.get_conn_safe()?;
+            let (blob_hash, original_path): (Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT blob_hash, original_path FROM files WHERE id = ?1",
+                    params![file_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| {
+                    VfsError::Database(format!("Failed to get file source info: {}", e))
+                })?
+                .unwrap_or((None, None));
+
+            if let Some(ref hash) = blob_hash {
+                let blobs_dir = self.db.blobs_dir().to_path_buf();
+                match VfsBlobRepo::get_blob_path_with_conn(&conn, &blobs_dir, hash)?
+                    .and_then(|path| std::fs::read(&path).ok())
+                {
+                    Some(bytes) => Some(bytes),
+                    None => {
+                        warn!(
+                            "[PdfProcessingService] Blob not found for hash: {}",
+                            hash
+                        );
+                        None
+                    }
+                }
+            } else if let Some(ref path_str) = original_path {
+                match std::fs::read(path_str) {
+                    Ok(bytes) => Some(bytes),
+                    Err(e) => {
+                        warn!(
+                            "[PdfProcessingService] Failed to read original path {}: {}",
+                            path_str, e
+                        );
+                        None
+                    }
+                }
+            } else {
+                warn!(
+                    "[PdfProcessingService] Neither blob_hash nor original_path available for file: {}",
+                    file_id
+                );
+                None
+            }
+        };
+
+        let bytes = match pdf_bytes {
+            Some(b) => b,
+            None => {
+                warn!(
+                    "[PdfProcessingService] Cannot generate preview: unable to read PDF content for file: {}",
+                    file_id
+                );
+                return Ok(None);
+            }
+        };
+
+        let bytes_len = bytes.len(); // snapshot before bytes is moved into spawn_blocking
+        let config = PdfPreviewConfig::default();
+        let blobs_dir = self.db.blobs_dir().to_path_buf();
+        let db_clone = self.db.clone();
+
+        // render_pdf_preview_with_progress 是 CPU 密集型操作，在阻塞线程中运行
+        let gen_result = tokio::task::spawn_blocking(move || {
+            let conn = db_clone.get_conn_safe()?;
+            render_pdf_preview_with_progress(&conn, &blobs_dir, &bytes, &config, |_, _| {})
+        })
+        .await
+        .map_err(|e| VfsError::Other(format!("Preview generation task panicked: {}", e)))
+        .and_then(|inner| inner);
+
+        match gen_result {
+            Ok(result) => {
+                let Some(pj_ref) = &result.preview_json else {
+                    warn!(
+                        "[PdfProcessingService] Dynamic preview generation returned no pages for file: {}",
+                        file_id
+                    );
+                    return Ok(None);
+                };
+                let pj_str = serde_json::to_string(pj_ref).map_err(|e| {
+                    VfsError::Serialization(format!("Failed to serialize preview_json: {}", e))
+                })?;
+
+                // 缓存到 files 表
+                let conn = self.db.get_conn_safe()?;
+                conn.execute(
+                    "UPDATE files SET preview_json = ?1, extracted_text = ?2, page_count = ?3 WHERE id = ?4",
+                    params![
+                        pj_str,
+                        result.extracted_text.as_deref(),
+                        result.page_count as i32,
+                        file_id,
+                    ],
+                )
+                .map_err(|e| {
+                    VfsError::Database(format!("Failed to cache preview_json: {}", e))
+                })?;
+
+                info!(
+                    "[PdfProcessingService] Dynamic preview generated and cached for file: {} ({} pages, {} bytes PDF)",
+                    file_id, result.page_count, bytes_len
+                );
+
+                Ok(Some((pj_str, result.page_count)))
+            }
+            Err(e) => {
+                warn!(
+                    "[PdfProcessingService] Dynamic preview generation failed for file {}: {}",
+                    file_id, e
+                );
+                Ok(None)
+            }
+        }
+    }
+
     /// 执行 Stage 3: OCR 处理
     ///
     /// ## 核心逻辑
@@ -3399,9 +3455,24 @@ impl PdfProcessingService {
         );
 
         // ★ Checkpoint/Resume: 加载已完成的 OCR 结果，跳过已处理的页面
-        let existing_results: Vec<OcrPageResult> = self
-            .load_existing_ocr_results(file_id)
-            .unwrap_or_default();
+        // ★ task-049: force OCR(用户手动「重新 OCR」)时丢弃检查点全页重跑;
+        // 普通续跑(半成品检查点 completedAt 为空)保留已有页结果继续。
+        // 注意:ensure 的不完整检查点续跑路径不再标记 force(旧实现两者共用标记,
+        // 若 force 一律清检查点,「断点续传」会被自己的恢复逻辑毁灭)。
+        let force_ocr = self.force_ocr_set.contains(file_id);
+        let existing_results: Vec<OcrPageResult> = if force_ocr {
+            let discarded = self.load_existing_ocr_results(file_id).unwrap_or_default();
+            if !discarded.is_empty() {
+                info!(
+                    "[PdfProcessingService] Force OCR for file {}: discarding {} checkpoint pages, re-processing all pages",
+                    file_id,
+                    discarded.len()
+                );
+            }
+            Vec::new()
+        } else {
+            self.load_existing_ocr_results(file_id).unwrap_or_default()
+        };
         let already_processed: std::collections::HashSet<usize> = existing_results
             .iter()
             .map(|r| r.page_index)
