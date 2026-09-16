@@ -1,0 +1,23 @@
+{
+  "title": "日志与诊断",
+  "description": "运行日志的级别、镜像与导出。日志目录：系统日志目录下的 logs 文件夹（主日志 deep-student.log、崩溃日志 crash/、前端日志 frontend/）。",
+  "level_label": "日志级别",
+  "level_note": "调整后端日志详细程度，重启应用后生效。排查问题时建议临时调到 debug，用完调回 info。",
+  "mirror_label": "镜像到控制台",
+  "mirror_note": "把后端日志同步输出到 Webview 开发者控制台，重启后生效。日常建议关闭（每条日志都有 IPC 开销）。",
+  "open_dir": "打开日志目录",
+  "open_dir_done": "日志目录已打开",
+  "export": "导出诊断包",
+  "exporting": "导出中…",
+  "export_done": "诊断包已导出：{{path}}",
+  "export_failed": "导出失败：{{error}}",
+  "save_failed": "保存失败：{{error}}",
+  "saved_restart_note": "已保存，重启应用后生效",
+  "levels": {
+    "error": "error（仅错误）",
+    "warn": "warn（警告+错误）",
+    "info": "info（默认）",
+    "debug": "debug（排障）",
+    "trace": "trace（最详细）"
+  }
+}

@@ -44,6 +44,7 @@ pub mod file_manager;
 pub mod injection_budget;
 pub mod json_validator;
 pub mod lance_vector_store;
+pub mod logging_config; // 运行时日志配置（logging.json：级别 + Webview 镜像，task-047）
 pub mod llm_manager;
 pub mod llm_structurer;
 pub mod llm_usage; // LLM 使用量统计模块（独立 llm_usage.db）
@@ -253,34 +254,43 @@ pub fn run() {
         info!("🔧 [DataGovernance] 数据治理命令将在 invoke_handler 中注册");
     }
 
+    // 统一日志插件：落盘到各平台推荐目录（Windows: %LOCALAPPDATA%\<id>\logs）。
+    // task-047：级别与 Webview 镜像改由 logging.json 控制（无需改代码即可提级排查）；
+    // 轮转 KeepSome(10)+单文件 10MB 上限，告别「每次启动只剩当次日志」；
+    // Webview 镜像默认关闭（生产环境每条日志过 IPC 是持续开销），dev build 始终开启。
+    let logging_prefs = crate::logging_config::load_prefs();
+    let log_level = logging_prefs.level_filter();
+    let mut log_plugin_builder = tauri_plugin_log::Builder::new()
+        .clear_targets()
+        // 写入各平台推荐日志目录
+        .target(Target::new(TargetKind::LogDir {
+            file_name: Some("deep-student".to_string()),
+        }))
+        // 开发期输出到终端
+        .target(Target::new(TargetKind::Stdout))
+        // 轮转：最多保留 10 个历史文件，单文件超 10MB 即滚动
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(10))
+        .max_file_size(10 * 1024 * 1024)
+        // 本地时区：用户读日志不再心算 UTC
+        .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
+        .level(log_level)
+        // 特别屏蔽一些第三方库的日志（始终压到 Warn，不受用户级别影响）
+        .level_for("lance", log::LevelFilter::Warn)
+        .level_for("lance_encoding", log::LevelFilter::Warn)
+        .level_for("lance_io", log::LevelFilter::Warn)
+        .level_for("tracing", log::LevelFilter::Warn)
+        .level_for("h2", log::LevelFilter::Warn)
+        .level_for("hyper", log::LevelFilter::Warn)
+        .level_for("rustls", log::LevelFilter::Warn)
+        .level_for("reqwest", log::LevelFilter::Warn)
+        // 我们自己的模块跟随用户配置级别
+        .level_for("deep_student_lib", log_level);
+    if logging_prefs.webview_mirror || cfg!(debug_assertions) {
+        log_plugin_builder = log_plugin_builder.target(Target::new(TargetKind::Webview));
+    }
+
     builder
-        // 统一日志插件：落盘到各平台推荐目录；开发期也输出到 Stdout/Webview
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .clear_targets()
-                // 写入各平台推荐日志目录（记录所有级别）
-                .target(Target::new(TargetKind::LogDir {
-                    file_name: Some("deep-student".to_string()),
-                }))
-                // 开发期输出到终端（过滤掉 TRACE 和 DEBUG）
-                .target(Target::new(TargetKind::Stdout))
-                // 开发期输出到浏览器控制台（过滤掉 TRACE 和 DEBUG）
-                .target(Target::new(TargetKind::Webview))
-                // 设置全局日志级别为 INFO，屏蔽掉 DEBUG 和 TRACE
-                .level(log::LevelFilter::Info)
-                // 特别屏蔽一些第三方库的日志
-                .level_for("lance", log::LevelFilter::Warn)
-                .level_for("lance_encoding", log::LevelFilter::Warn)
-                .level_for("lance_io", log::LevelFilter::Warn)
-                .level_for("tracing", log::LevelFilter::Warn)
-                .level_for("h2", log::LevelFilter::Warn)
-                .level_for("hyper", log::LevelFilter::Warn)
-                .level_for("rustls", log::LevelFilter::Warn)
-                .level_for("reqwest", log::LevelFilter::Warn)
-                // 我们自己的模块保持 INFO 级别
-                .level_for("deep_student_lib", log::LevelFilter::Info)
-                .build(),
-        )
+        .plugin(log_plugin_builder.build())
         //.manage(init_app_state())
         .setup(|app| {
             // 启动完成闸门守卫（startup_gate）：闭包任意路径退出（含恢复模式
@@ -309,8 +319,25 @@ pub fn run() {
                     fallback
                 });
 
-            // 初始化崩溃日志（即使后续仍有致命错误，也能落盘）
-            crate::crash_logger::init_crash_logging(base_app_data_dir.clone());
+            // task-047: 统一日志根目录（tauri app_log_dir；Windows 即 %LOCALAPPDATA%）
+            // 主日志 deep-student.log / crash / frontend / backend 结构化日志同树
+            let log_root = crate::logging_config::resolve_log_root(&app_handle);
+
+            // 启动横幅：版本/构建/git/系统/pid/日志目录——每次启动一条，
+            // 读日志第一眼就能区分会话边界与构建来源（对标 JetBrains 启动头）
+            info!(
+                "========== Deep Student v{} (Build {}, git {}) 启动 | os={} arch={} pid={} | 日志目录: {} ==========",
+                env!("CARGO_PKG_VERSION"),
+                env!("BUILD_NUMBER"),
+                env!("GIT_HASH"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                std::process::id(),
+                log_root.display()
+            );
+
+            // 初始化崩溃日志（即使后续仍有致命错误，也能落盘；与主日志同树）
+            crate::crash_logger::init_crash_logging(log_root.clone());
 
             // 清理 PaddleOCR 分片遗留的临时目录（> 1 小时，尽力而为）
             crate::paddleocr_split::cleanup_orphaned_temp_dirs();
@@ -403,8 +430,8 @@ pub fn run() {
 
             let queue_db_path = active_app_data_dir.join("message_queue.db");
 
-            // 初始化全局调试日志记录器
-            crate::debug_logger::init_global_logger(base_app_data_dir.clone());
+            // 初始化全局调试日志记录器（task-047: 统一日志根目录）
+            crate::debug_logger::init_global_logger(log_root.clone());
 
             // 初始化持久化消息队列（失败不致命，记录错误并继续启动）
             match crate::persistent_message_queue::init_persistent_message_queue(queue_db_path) {
@@ -1157,6 +1184,10 @@ pub fn run() {
             crate::debug_commands::debug_get_database_stats,
             crate::debug_commands::log_debug_message,
             crate::debug_commands::debug_vfs_migration_status,
+            crate::debug_commands::export_diagnostics_bundle,
+            crate::debug_commands::open_log_dir,
+            crate::logging_config::logging_get_prefs,
+            crate::logging_config::logging_set_prefs,
             crate::debug_commands::debug_vfs_textbook_pages,
             // =================================================
             // Vector Index Management

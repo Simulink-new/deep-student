@@ -12,10 +12,16 @@ static CRASH_LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 static CRASH_HOOK_INIT: Once = Once::new();
 
 const MAX_CRASH_LOGS: usize = 20;
+/// 崩溃文件中附带的主日志尾部最大字节数（取尾部，约几百行）
+const MAIN_LOG_TAIL_BYTES: u64 = 64 * 1024;
 
 /// 初始化崩溃日志记录器，并注册 panic hook。
-pub fn init_crash_logging(app_data_dir: PathBuf) {
-    let crash_dir = app_data_dir.join("logs").join("crash");
+///
+/// `log_root` 为统一日志根目录（tauri app_log_dir）：崩溃文件写入
+/// `{log_root}/crash/`，与主日志 `deep-student.log` 同目录树下，
+/// 便于 panic 时附带主日志尾部作为现场上下文。
+pub fn init_crash_logging(log_root: PathBuf) {
+    let crash_dir = log_root.join("crash");
 
     if let Err(err) = fs::create_dir_all(&crash_dir) {
         eprintln!("[CrashLogger] 创建崩溃日志目录失败: {}", err);
@@ -35,6 +41,16 @@ pub fn init_crash_logging(app_data_dir: PathBuf) {
                         eprintln!("[CrashLogger] 写入崩溃日志失败: {}", err);
                     }
                 }
+            }));
+
+            // 让 panic 也进入主日志（tauri-plugin-log 通道）——
+            // 否则主日志里看不到崩溃点，只能靠 crash 目录关联
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let location = panic_info
+                    .location()
+                    .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                    .unwrap_or_else(|| "未知位置".to_string());
+                log::error!("[PANIC] {} @ {}", panic_info, location);
             }));
 
             // Sentry 上报，单独 catch
@@ -105,8 +121,9 @@ fn cleanup_old_crash_logs(dir: &Path) {
     }
 }
 
-/// 脱敏：移除文件路径中的用户名部分
-fn scrub_pii(input: &str) -> String {
+/// 脱敏：移除文件路径中的用户名部分（本地文件与上报同样处理——
+/// 用户向他人提供崩溃日志是常态，用户名属于 PII）
+pub(crate) fn scrub_pii(input: &str) -> String {
     let result = input.to_string();
     #[cfg(target_os = "windows")]
     {
@@ -125,6 +142,35 @@ fn scrub_pii(input: &str) -> String {
         }
     }
     result
+}
+
+/// 读取主日志尾部（最多 MAIN_LOG_TAIL_BYTES，按行截断到完整行）。
+/// 崩溃时附带上现场上下文——2026-09-16 闪退事故中崩溃文件只有 527B
+/// 无符号回溯，而主日志里有完整启动序列，两者合一才能自助定位。
+fn read_main_log_tail(log_root: &Path) -> Option<String> {
+    let main_log = log_root.join("deep-student.log");
+    let meta = fs::metadata(&main_log).ok()?;
+    if meta.len() == 0 {
+        return None;
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(&main_log).ok()?;
+    let start = meta.len().saturating_sub(MAIN_LOG_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = String::new();
+    // 尾部不足 64KB 直接全读；超出时从中间截断，丢弃第一条残行
+    file.read_to_string(&mut buf).ok()?;
+    if start > 0 {
+        if let Some(idx) = buf.find('\n') {
+            buf.drain(..=idx);
+        }
+    }
+    let trimmed = buf.trim_end().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn write_crash_log(
@@ -152,6 +198,11 @@ fn write_crash_log(
         env!("BUILD_NUMBER"),
         env!("GIT_HASH"),
     ));
+    buffer.push_str(&format!(
+        "系统: {} {}\n",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ));
     buffer.push_str(&format!("进程: {}\n", std::process::id()));
     buffer.push_str(&format!(
         "线程: {}\n",
@@ -178,5 +229,14 @@ fn write_crash_log(
     let backtrace = Backtrace::force_capture();
     buffer.push_str(&format!("{:?}\n", backtrace));
 
-    fs::write(path, buffer)
+    // 附带主日志尾部（崩溃现场上下文）
+    let log_root = destination.parent().unwrap_or(destination);
+    if let Some(tail) = read_main_log_tail(log_root) {
+        buffer.push_str("\n=== 主日志尾部（deep-student.log 最后 ~64KB）===\n");
+        buffer.push_str(&tail);
+        buffer.push('\n');
+    }
+
+    // 本地文件同样脱敏：用户把崩溃日志发给我们/社区是常态
+    fs::write(path, scrub_pii(&buffer))
 }

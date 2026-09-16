@@ -10,7 +10,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
 use tracing::{error, info, warn};
 fn console_logging_enabled() -> bool {
     match std::env::var("DSTU_CONSOLE_LOG") {
@@ -59,9 +58,15 @@ pub struct DebugLogger {
 impl DebugLogger {
     const MAX_LOG_AGE_DAYS: i64 = 7;
     const MAX_LOG_FILE_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10MB
+    /// 队列达到该长度即落盘（修复：此前仅 ERROR 触发 flush，
+    /// INFO/DEBUG 在内存无界累积且永不写入，logs/backend 恒为空）
+    const FLUSH_THRESHOLD: usize = 20;
+    /// 队列硬上限：flush 持续失败时丢最旧保最新，防内存泄漏
+    const MAX_QUEUE_LEN: usize = 500;
 
-    pub fn new(app_data_dir: PathBuf) -> Self {
-        let log_dir = app_data_dir.join("logs");
+    pub fn new(log_dir: PathBuf) -> Self {
+        // task-047: 参数语义从 app_data_dir 改为「日志根目录」
+        // （tauri app_log_dir），日志四族统一归 %LOCALAPPDATA%\...\logs\
 
         // 确保日志目录存在
         if let Err(e) = std::fs::create_dir_all(&log_dir.join("frontend")) {
@@ -348,20 +353,18 @@ impl DebugLogger {
             },
         };
 
-        // 添加到队列
-        {
+        // 添加到队列（有界：超上限丢最旧；达到阈值或 ERROR 立即落盘）
+        let should_flush = {
             let mut queue = self.log_queue.lock().unwrap_or_else(|e| e.into_inner());
             queue.push(log_entry.clone());
-
-            // 如果是错误级别，立即写入
-            if matches!(level, LogLevel::ERROR) {
-                drop(queue);
-                // 使用 spawn 来避免 Send 问题
-                let logger = self.clone();
-                tokio::spawn(async move {
-                    logger.flush_logs().await;
-                });
+            if queue.len() > Self::MAX_QUEUE_LEN {
+                let overflow = queue.len() - Self::MAX_QUEUE_LEN;
+                queue.drain(..overflow);
             }
+            matches!(level, LogLevel::ERROR) || queue.len() >= Self::FLUSH_THRESHOLD
+        };
+        if should_flush {
+            self.flush_logs().await;
         }
 
         // 可选：输出到控制台（默认关闭，设置 DSTU_CONSOLE_LOG=true 启用）
@@ -644,9 +647,10 @@ impl DebugLogger {
 // Tauri命令，用于从前端写入日志
 #[tauri::command]
 pub async fn write_debug_logs(app: tauri::AppHandle, logs: Vec<LogEntry>) -> Result<(), String> {
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    // task-047: 统一日志根目录（app_log_dir），与主日志/崩溃日志同一目录树
+    let log_root = crate::logging_config::resolve_log_root(&app);
 
-    let logger = DebugLogger::new(app_data_dir);
+    let logger = DebugLogger::new(log_root);
 
     // 写入前端日志到frontend目录
     let frontend_dir = logger.log_dir.join("frontend");
@@ -680,9 +684,9 @@ pub async fn write_debug_logs(app: tauri::AppHandle, logs: Vec<LogEntry>) -> Res
 static GLOBAL_LOGGER: LazyLock<Arc<Mutex<Option<DebugLogger>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-/// 初始化全局日志记录器
-pub fn init_global_logger(app_data_dir: PathBuf) {
-    *GLOBAL_LOGGER.lock().unwrap_or_else(|e| e.into_inner()) = Some(DebugLogger::new(app_data_dir));
+/// 初始化全局日志记录器。参数：统一日志根目录（tauri app_log_dir）
+pub fn init_global_logger(log_root: PathBuf) {
+    *GLOBAL_LOGGER.lock().unwrap_or_else(|e| e.into_inner()) = Some(DebugLogger::new(log_root));
 }
 
 /// 获取全局日志记录器
@@ -691,25 +695,4 @@ pub fn get_global_logger() -> Option<DebugLogger> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
-}
-
-/// 便捷宏用于记录日志
-#[macro_export]
-macro_rules! debug_log {
-    ($level:expr, $module:expr, $operation:expr, $data:expr) => {
-        if let Some(logger) = crate::debug_logger::get_global_logger() {
-            tokio::spawn(async move {
-                logger.log($level, $module, $operation, $data, None).await;
-            });
-        }
-    };
-    ($level:expr, $module:expr, $operation:expr, $data:expr, $context:expr) => {
-        if let Some(logger) = crate::debug_logger::get_global_logger() {
-            tokio::spawn(async move {
-                logger
-                    .log($level, $module, $operation, $data, Some($context))
-                    .await;
-            });
-        }
-    };
 }

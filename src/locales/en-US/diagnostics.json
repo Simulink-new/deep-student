@@ -1,0 +1,23 @@
+{
+  "title": "Logging & Diagnostics",
+  "description": "Runtime log level, console mirroring, and diagnostics export. Logs live in the system log directory (deep-student.log, crash/, frontend/).",
+  "level_label": "Log level",
+  "level_note": "Controls backend log verbosity; takes effect after restart. Use debug while troubleshooting, then switch back to info.",
+  "mirror_label": "Mirror to console",
+  "mirror_note": "Also forward backend logs to the Webview dev console; takes effect after restart. Keep off in daily use (per-record IPC overhead).",
+  "open_dir": "Open log folder",
+  "open_dir_done": "Log folder opened",
+  "export": "Export diagnostics bundle",
+  "exporting": "Exporting…",
+  "export_done": "Diagnostics exported: {{path}}",
+  "export_failed": "Export failed: {{error}}",
+  "save_failed": "Save failed: {{error}}",
+  "saved_restart_note": "Saved — takes effect after restart",
+  "levels": {
+    "error": "error (errors only)",
+    "warn": "warn (warnings + errors)",
+    "info": "info (default)",
+    "debug": "debug (troubleshooting)",
+    "trace": "trace (most verbose)"
+  }
+}

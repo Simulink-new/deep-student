@@ -9,6 +9,7 @@ import { NotionButton } from '@/components/ui/NotionButton';
 import { Input } from '@/components/ui/shad/Input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/shad/Select';
 import { SettingSection } from './SettingsCommon';
+import DiagnosticsSection from './DiagnosticsSection';
 import { PrivacyPolicyDialog } from '@/components/legal/PrivacyPolicyDialog';
 import VERSION_INFO from '@/version';
 import { useAppUpdater, getUpdateChannel, setUpdateChannel, type UpdateChannel, getUpdateFrequency, setUpdateFrequency, type UpdateFrequency, getUpdateFrequencyDays, setUpdateFrequencyDays, getNoRemind, setNoRemind } from '@/hooks/useAppUpdater';
@@ -411,6 +412,9 @@ export const AboutTab: React.FC = () => {
         </div>
 
       </SettingSection>
+
+      {/* 日志与诊断（级别/镜像/打开目录/导出诊断包，task-047） */}
+      <DiagnosticsSection />
 
       {/* 隐私政策弹窗 */}
       <PrivacyPolicyDialog open={showPrivacyPolicy} onOpenChange={setShowPrivacyPolicy} />

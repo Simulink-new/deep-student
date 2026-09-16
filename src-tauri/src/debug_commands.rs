@@ -883,3 +883,210 @@ pub async fn debug_vfs_textbook_pages(
 
     Ok(results)
 }
+
+// ============================================================================
+// task-047: 一键导出诊断包 + 打开日志目录
+// 对标 JetBrains「Help → Collect Logs and Diagnostic Data」：
+// 主日志+轮转归档、崩溃日志、前端日志（均脱敏+截尾）+ 系统信息打包成 zip，
+// 用户报障时只需发一个文件。
+// ============================================================================
+
+/// 单个文本文件纳入诊断包时的最大尾部字节数
+const DIAG_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+/// 诊断包输入总量上限
+const DIAG_TOTAL_CAP_BYTES: u64 = 40 * 1024 * 1024;
+
+fn diag_read_tail(path: &std::path::Path, max_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() == 0 {
+        return None;
+    }
+    let mut file = std::fs::File::open(path).ok()?;
+    let start = meta.len().saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf).ok()?;
+    if start > 0 {
+        if let Some(idx) = buf.find('\n') {
+            buf.drain(..=idx);
+        }
+    }
+    Some(buf)
+}
+
+/// 收集目录下最近修改的 N 个日志文件
+fn diag_recent_files(dir: &std::path::Path, prefix: &str, limit: usize) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(prefix))
+                    .unwrap_or(false)
+        })
+        .collect();
+    files.sort_by_key(|p| {
+        p.metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    files.reverse();
+    files.truncate(limit);
+    files
+}
+
+/// 导出诊断包到下载目录，返回 zip 绝对路径
+#[tauri::command]
+pub async fn export_diagnostics_bundle(app: tauri::AppHandle) -> Result<String, String> {
+    let log_root = crate::logging_config::resolve_log_root(&app);
+
+    let dest_dir = dirs::download_dir()
+        .or_else(dirs::document_dir)
+        .unwrap_or_else(|| log_root.clone());
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let zip_path = dest_dir.join(format!("deep-student-diagnostics-{}.zip", ts));
+
+    let log_root_for_task = log_root.clone();
+    let zip_path_for_task = zip_path.clone();
+    // 压缩是 CPU+IO 密集操作，放到阻塞线程池
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let file = std::fs::File::create(&zip_path_for_task).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        let mut total_in: u64 = 0;
+        let mut included: Vec<String> = Vec::new();
+
+        // 宏而非闭包：避免对 zip/included 的长期可变借用冲突
+        macro_rules! add_text {
+            ($name:expr, $text:expr) => {{
+                let name: &str = $name;
+                let text: &str = $text;
+                let scrubbed = crate::crash_logger::scrub_pii(text);
+                zip.start_file(name, options)
+                    .map_err(|e| format!("zip 写入 {} 失败: {}", name, e))?;
+                use std::io::Write;
+                zip.write_all(scrubbed.as_bytes())
+                    .map_err(|e| format!("zip 写入 {} 失败: {}", name, e))?;
+                included.push(format!("{} ({} bytes)", name, text.len()));
+            }};
+        }
+
+        // 1. 系统信息
+        let sysinfo = format!(
+            "version: {} (Build {}, git {})\nos: {} {}\npid: {}\ntime: {}\nlog_root: {}\nlogging_prefs: {:?}\n",
+            env!("CARGO_PKG_VERSION"),
+            env!("BUILD_NUMBER"),
+            env!("GIT_HASH"),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            std::process::id(),
+            chrono::Local::now().to_rfc3339(),
+            log_root_for_task.display(),
+            crate::logging_config::load_prefs(),
+        );
+        add_text!("system.txt", &sysinfo);
+
+        // 2. 主日志 + 轮转归档（最多 5 个）
+        for p in diag_recent_files(&log_root_for_task, "deep-student", 5) {
+            if total_in >= DIAG_TOTAL_CAP_BYTES {
+                break;
+            }
+            if let Some(text) = diag_read_tail(&p, DIAG_MAX_FILE_BYTES) {
+                total_in += text.len() as u64;
+                let fname = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("deep-student.log");
+                add_text!(&format!("main/{}", fname), &text);
+            }
+        }
+
+        // 3. 崩溃日志（全部，最多 20 个）
+        for p in diag_recent_files(&log_root_for_task.join("crash"), "crash-", 20) {
+            if total_in >= DIAG_TOTAL_CAP_BYTES {
+                break;
+            }
+            if let Some(text) = diag_read_tail(&p, DIAG_MAX_FILE_BYTES) {
+                total_in += text.len() as u64;
+                let fname = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("crash.log");
+                add_text!(&format!("crash/{}", fname), &text);
+            }
+        }
+
+        // 4. 前端日志（最近 10 个）
+        for p in diag_recent_files(&log_root_for_task.join("frontend"), "", 10) {
+            if total_in >= DIAG_TOTAL_CAP_BYTES {
+                break;
+            }
+            if p.extension().and_then(|e| e.to_str()) != Some("log") {
+                continue;
+            }
+            if let Some(text) = diag_read_tail(&p, DIAG_MAX_FILE_BYTES) {
+                total_in += text.len() as u64;
+                let fname = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("frontend.log");
+                add_text!(&format!("frontend/{}", fname), &text);
+            }
+        }
+
+        // 5. 后端结构化日志（最近 10 个）
+        for p in diag_recent_files(&log_root_for_task.join("backend"), "", 10) {
+            if total_in >= DIAG_TOTAL_CAP_BYTES {
+                break;
+            }
+            if p.extension().and_then(|e| e.to_str()) != Some("log") {
+                continue;
+            }
+            if let Some(text) = diag_read_tail(&p, DIAG_MAX_FILE_BYTES) {
+                total_in += text.len() as u64;
+                let fname = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("backend.log");
+                add_text!(&format!("backend/{}", fname), &text);
+            }
+        }
+
+        // 6. 清单（最后写，包含实际纳入列表）
+        let manifest = format!(
+            "Deep Student 诊断包\n生成时间: {}\n包含文件:\n  {}\n",
+            chrono::Local::now().to_rfc3339(),
+            included.join("\n  ")
+        );
+        add_text!("manifest.txt", &manifest);
+
+        zip.finish().map_err(|e| format!("zip 完成失败: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("诊断包任务失败: {}", e))??;
+
+    log::info!(
+        "[Diagnostics] 诊断包已导出: {}",
+        zip_path.display()
+    );
+    Ok(zip_path.to_string_lossy().to_string())
+}
+
+/// 在系统文件管理器中打开日志目录
+#[tauri::command]
+pub async fn open_log_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let log_root = crate::logging_config::resolve_log_root(&app);
+    std::fs::create_dir_all(&log_root).map_err(|e| e.to_string())?;
+    tauri_plugin_opener::open_path(&log_root, None::<&str>).map_err(|e| e.to_string())?;
+    Ok(log_root.to_string_lossy().to_string())
+}
