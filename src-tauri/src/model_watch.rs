@@ -475,9 +475,17 @@ async fn run_check_inner(
 }
 
 /// 每日调度：启动 2 分钟后首次检查（若到期），之后每小时复查一次。
-/// 任务注册到全局 TaskTracker，应用退出时随 background_tasks::shutdown 优雅收尾。
+///
+/// ⚠️ 运行时上下文红线（2026-09-16 启动闪退事故）：
+/// 本函数在 setup() 里被**主线程同步**调用，此处没有 Tokio 运行时上下文。
+/// `BACKGROUND_TASKS.spawn` 内部是 `tokio::spawn`，在无线程上下文处调用会
+/// panic「there is no reactor running」→ 进程启动即崩溃。
+/// 因此这里必须用 `tauri::async_runtime::spawn`（自带运行时句柄）。
+/// 另外本任务是无限循环，若注册进 TaskTracker，`shutdown()` 的 wait() 每次
+/// 退出都会等满 5s 超时——无限任务本就不该被追踪，随进程退出丢弃即可
+/// （巡检 best-effort：退出时若在运行中，最坏只是少写一次 settings）。
 pub fn start_daily_scheduler(app: AppHandle, llm: Arc<LLMManager>, db: Arc<Database>) {
-    crate::background_tasks::BACKGROUND_TASKS.spawn(async move {
+    tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_DELAY).await;
         loop {
             if due_for_run(&db) {
