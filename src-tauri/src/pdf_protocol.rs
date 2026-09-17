@@ -8,9 +8,11 @@ use std::path::PathBuf;
 
 const DEFAULT_CORS_ORIGIN: &str = "tauri://localhost";
 
-/// 无 Range 请求时的最大单次返回字节数（4MB）。
-/// 超过该阈值时改为返回 206 Partial Content，避免一次性把整个 PDF 读入内存。
-const PDF_PROTOCOL_NO_RANGE_CAP: u64 = 4 * 1024 * 1024;
+/// ★ task-052: 跨源响应必须显式暴露这些头,否则 WebView 的 fetch/PDF.js 读不到
+/// Content-Range(无法解析 206 的总长度)与 Accept-Ranges(无法判定支持分段),
+/// 直连流式模式会静默失败。Content-Length 虽是 safelisted,一并列出无害。
+const CORS_EXPOSE_HEADERS: &str =
+    "Content-Range, Accept-Ranges, Content-Length, Content-Type, Content-Encoding";
 
 fn resolve_cors_origin(request: &tauri::http::Request<Vec<u8>>) -> String {
     let origin = request
@@ -44,6 +46,7 @@ fn with_cors_headers(
         .header("Access-Control-Allow-Origin", origin)
         .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
         .header("Access-Control-Allow-Headers", "Range")
+        .header("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS)
         .header("Vary", "Origin");
     builder
 }
@@ -131,10 +134,7 @@ pub fn handle_asset_protocol(
                 requested_path.display(),
                 e
             );
-            return Ok(tauri::http::Response::builder()
-                .status(404)
-                .header("Vary", "Origin")
-                .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
+            return Ok(with_cors_headers(tauri::http::Response::builder().status(404), request)
                 .body(Vec::new())?);
         }
     };
@@ -148,10 +148,7 @@ pub fn handle_asset_protocol(
             "[pdfstream] 拒绝访问白名单外路径: {}",
             canonical_path.display()
         );
-        return Ok(tauri::http::Response::builder()
-            .status(403)
-            .header("Vary", "Origin")
-            .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
+        return Ok(with_cors_headers(tauri::http::Response::builder().status(403), request)
             .body(Vec::new())?);
     }
 
@@ -177,10 +174,7 @@ pub fn handle_asset_protocol(
             "[pdfstream] 拒绝访问非 PDF 且不在 blobs 目录内的文件: {}",
             canonical_path.display()
         );
-        return Ok(tauri::http::Response::builder()
-            .status(403)
-            .header("Vary", "Origin")
-            .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
+        return Ok(with_cors_headers(tauri::http::Response::builder().status(403), request)
             .body(Vec::new())?);
     }
 
@@ -224,20 +218,19 @@ pub fn handle_asset_protocol(
                 file.read_exact(&mut buffer)?;
 
                 // 返回 206 Partial Content
-                Ok(tauri::http::Response::builder()
-                    .status(206)
-                    .header("Content-Type", get_mime_type(&canonical_path))
-                    .header("Content-Length", content_length.to_string())
-                    .header(
-                        "Content-Range",
-                        format!("bytes {}-{}/{}", start, end, file_size),
-                    )
-                    .header("Accept-Ranges", "bytes")
-                    .header("Vary", "Origin")
-                    .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
-                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "Range")
-                    .body(buffer)?)
+                Ok(with_cors_headers(
+                    tauri::http::Response::builder()
+                        .status(206)
+                        .header("Content-Type", get_mime_type(&canonical_path))
+                        .header("Content-Length", content_length.to_string())
+                        .header(
+                            "Content-Range",
+                            format!("bytes {}-{}/{}", start, end, file_size),
+                        )
+                        .header("Accept-Ranges", "bytes"),
+                    request,
+                )
+                .body(buffer)?)
             } else {
                 // Range 格式错误
                 Ok(with_cors_headers(
@@ -250,42 +243,24 @@ pub fn handle_asset_protocol(
             }
         }
         None => {
-            // 无 Range 请求：小文件直接整体返回；大文件改用 206 + 4MB 截断，
-            // PDF.js 会基于响应中的 Content-Range/total 长度继续发起后续 Range 请求。
-            if file_size <= PDF_PROTOCOL_NO_RANGE_CAP {
-                let mut buffer = Vec::with_capacity(file_size as usize);
-                file.read_to_end(&mut buffer)?;
+            // ★ task-052: 无 Range 请求一律返回 200 + 完整 Content-Length + 全量 body。
+            // 旧实现对大文件返回 206 + 4MB 截断,但 PDF.js 的 validateRangeRequestCapabilities
+            // 只从 Content-Length 读取文件总长(不解析 Content-Range)——截断响应会让
+            // PDF.js 误以为文件只有 4MB,到错误的"文件尾"找 xref → Invalid PDF。
+            // PDF.js 初始探测请求拿到头后即 abort body(disableStream),随后全部走
+            // Range 分段;图片/媒体等无 Range 消费者本就需要完整 200。
+            let mut buffer = Vec::with_capacity(file_size as usize);
+            file.read_to_end(&mut buffer)?;
 
-                Ok(tauri::http::Response::builder()
+            Ok(with_cors_headers(
+                tauri::http::Response::builder()
                     .status(200)
                     .header("Content-Type", get_mime_type(&canonical_path))
                     .header("Content-Length", file_size.to_string())
-                    .header("Accept-Ranges", "bytes")
-                    .header("Vary", "Origin")
-                    .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
-                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "Range")
-                    .body(buffer)?)
-            } else {
-                let cap = PDF_PROTOCOL_NO_RANGE_CAP;
-                let mut buffer = Vec::with_capacity(cap as usize);
-                file.take(cap).read_to_end(&mut buffer)?;
-
-                Ok(tauri::http::Response::builder()
-                    .status(206)
-                    .header("Content-Type", get_mime_type(&canonical_path))
-                    .header("Content-Length", cap.to_string())
-                    .header(
-                        "Content-Range",
-                        format!("bytes 0-{}/{}", cap - 1, file_size),
-                    )
-                    .header("Accept-Ranges", "bytes")
-                    .header("Vary", "Origin")
-                    .header("Access-Control-Allow-Origin", resolve_cors_origin(request))
-                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "Range")
-                    .body(buffer)?)
-            }
+                    .header("Accept-Ranges", "bytes"),
+                request,
+            )
+            .body(buffer)?)
         }
     }
 }

@@ -290,7 +290,9 @@ export const TextbookPdfViewer: React.FC<TextbookPdfViewerProps> = ({
         </div>
       )}
 
-      {!file && !filePath && !error && (
+      {/* ★ task-052 修复:streamUrl 必须计入「无内容」判断——
+          task-051 漏改此门闸,streamUrl 专属模式下误显示空状态 */}
+      {!file && !filePath && !streamUrl && !error && (
         <div className="textbook-empty-state">
           <BookOpen size={48} className="textbook-empty-icon" />
           <p className="textbook-empty-title">{t('textbook:no_textbook_loaded')}</p>
@@ -302,7 +304,10 @@ export const TextbookPdfViewer: React.FC<TextbookPdfViewerProps> = ({
         </div>
       )}
 
-      {(file || (filePath && filePath.trim())) && (
+      {/* ★ task-052 修复:streamUrl 必须计入挂载门闸——task-051 漏改此处,
+          导致 file=null + filePath='' + streamUrl 有值时 EnhancedPdfViewer 永不挂载
+          (PDF.js 从未启动,网络零请求,用户看到空状态)——「全部 PDF 打不开」直接根因 */}
+      {(file || streamUrl || (filePath && filePath.trim())) && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <EnhancedPdfViewer
             url={viewerUrl}
