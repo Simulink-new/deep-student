@@ -382,9 +382,9 @@ const UnifiedSourcePanel: React.FC<UnifiedSourcePanelProps> = ({
     return t('common:chat.sources.total', { count: data?.total ?? 0 });
   }, [t, data?.total]);
 
-  if (!groups.length) {
-    return null;
-  }
+  // ★ task-054 修复(React #310):「无分组 return null」门闸必须位于所有 hooks 之后
+  // (getItemResourceLocator useCallback / 滚动跟随 useEffect),否则来源列表
+  // 空↔非空翻转时 hook 数量变化即崩。门闸已下移至 useEffect 之后。
 
   const handleOpenLink = (item: UnifiedSourceItem) => {
     if (item.link && isHttpUrl(item.link)) {
@@ -504,6 +504,10 @@ const UnifiedSourcePanel: React.FC<UnifiedSourcePanelProps> = ({
       }
     };
   }, [open]);
+
+  if (!groups.length) {
+    return null;
+  }
 
   // 移动端：渲染来源列表项（垂直布局）
   const renderMobileSourceItem = (entry: { type: 'item'; key: string; item: UnifiedSourceItem; globalIndex: number }) => {

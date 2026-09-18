@@ -65,22 +65,16 @@ export const PageNavigator: React.FC<PageNavigatorProps> = ({ store }) => {
   const mode = useStore(store, (s) => s.mode);
   const modeState = useStore(store, (s) => s.modeState as unknown as TextbookModeState | null);
 
-  // 如果不是 textbook 模式或没有 modeState，不渲染
-  if (!modeState || mode !== 'textbook') {
-    return null;
-  }
-
-  const {
-    loadingStatus,
-    loadingError,
-    currentPage,
-    totalPages,
-    pages,
-  } = modeState;
+  // ★ task-054 修复(React #310):hooks 必须先于「非 textbook 模式 return null」门闸——
+  // modeState null→就绪翻转时 hook 数变化即崩。门闸字段以可选链+默认值派生,
+  // 保证 hook 依赖在 modeState 为空时也有稳定值。
+  const pages = modeState?.pages;
+  const currentPage = modeState?.currentPage ?? 1;
+  const totalPages = modeState?.totalPages ?? 0;
 
   // 获取当前页数据
   const currentPageData = useMemo(
-    () => pages.find((p) => p.pageNum === currentPage),
+    () => pages?.find((p) => p.pageNum === currentPage),
     [pages, currentPage]
   );
 
@@ -110,6 +104,16 @@ export const PageNavigator: React.FC<PageNavigatorProps> = ({ store }) => {
   const handleRetry = useCallback(() => {
     reloadTextbook(store.getState()).catch(console.error);
   }, [store]);
+
+  // 如果不是 textbook 模式或没有 modeState，不渲染
+  if (!modeState || mode !== 'textbook') {
+    return null;
+  }
+
+  const {
+    loadingStatus,
+    loadingError,
+  } = modeState;
 
   // 加载中状态
   if (loadingStatus === 'loading') {

@@ -55,6 +55,23 @@ export const OcrResultHeader: React.FC<OcrResultHeaderProps> = ({ store }) => {
   const mode = useStore(store, (s) => s.mode);
   const modeState = useStore(store, (s) => s.modeState as unknown as AnalysisModeState | null);
 
+  // ★ task-054 修复(React #310):useCallback 必须先于下方所有 early return——
+  // modeState null→就绪、ocrStatus 状态机翻转都会穿过门闸,hook 数变化即崩。
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((prev) => !prev);
+  }, []);
+
+  // 重试 OCR
+  const handleRetry = useCallback(async () => {
+    try {
+      // 🔧 P1修复：调用 retryOcr 执行实际的 OCR 重试
+      // retryOcr 会检查并发保护、重置状态、调用后端
+      await retryOcr(store.getState());
+    } catch (error: unknown) {
+      console.error('[OcrResultHeader] Retry OCR failed:', error);
+    }
+  }, [store]);
+
   // 如果不是 analysis 模式或没有 modeState，不渲染
   if (!modeState || mode !== 'analysis') {
     return null;
@@ -116,21 +133,6 @@ export const OcrResultHeader: React.FC<OcrResultHeaderProps> = ({ store }) => {
       </div>
     );
   }
-
-  const toggleExpanded = useCallback(() => {
-    setIsExpanded((prev) => !prev);
-  }, []);
-
-  // 重试 OCR
-  const handleRetry = useCallback(async () => {
-    try {
-      // 🔧 P1修复：调用 retryOcr 执行实际的 OCR 重试
-      // retryOcr 会检查并发保护、重置状态、调用后端
-      await retryOcr(store.getState());
-    } catch (error: unknown) {
-      console.error('[OcrResultHeader] Retry OCR failed:', error);
-    }
-  }, [store]);
 
   return (
     <div

@@ -989,9 +989,27 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [isPdf, effectiveFilePath, pdfFile, pdfStreamUrl, pdfLoading, pdfError]);
 
+  // ★ per-page OCR display content: 优先用按页加载的 MD
+  // ★ task-048 修复（OCR 文本预览空白根因）：旧逻辑只在 pdf 模式回退全量文本,
+  // ocr/split 模式下页 MD 加载失败(旧 schema/缺页/网络)即 content=null → 整页空白。
+  // 现在:页 MD 有正文 → 页 MD;页 MD 仅标题(空白页) → 标题+占位说明;
+  // 页 MD 不可用 → 回退全量 OCR 文本,绝不无声空白。
+  // ★ task-054 修复(minified react error #310):此 useMemo 原位于下方 PDF 加载/错误
+  // 门闸 early return 之后——加载态渲染 N 个 hooks、就绪态渲染 N+1 个,hook 数量跨渲染
+  // 变化直接触发 "Rendered more hooks than during the previous render"(每个 PDF 必崩)。
+  // Hook 必须在所有 early return 之前,故上移至此。
+  const ocrDisplayContent = useMemo(() => {
+    if (ocrPageMd) {
+      const body = ocrPageMd.replace(/^# Page \d+\s*/, '').trim();
+      if (body) return ocrPageMd;
+      return `${ocrPageMd.trimEnd()}\n\n*${t('textbook:ocr.emptyPage', '本页无 OCR 识别文本（可能是空白页或纯图片页）')}*`;
+    }
+    return ocrTextContent;
+  }, [ocrPageMd, ocrTextContent, t]);
+
   // ★ 移除 filePath 为空时的硬性错误，改为在内容加载失败时显示错误
   // 因为从 attachments 迁移的文件可能没有 filePath，但可以通过 vfs_get_attachment_content 获取内容
-  
+
   // PDF 文件：如果没有 filePath 且没有 pdfFile/pdfStreamUrl，显示加载中或错误
   if (isPdf && !effectiveFilePath && !pdfFile && !pdfStreamUrl) {
     if (pdfLoading) {
@@ -1412,19 +1430,8 @@ const TextbookContentViewInner: React.FC<ContentViewProps> = ({
     />
   );
 
-  // ★ per-page OCR display content: 优先用按页加载的 MD
-  // ★ task-048 修复（OCR 文本预览空白根因）：旧逻辑只在 pdf 模式回退全量文本,
-  // ocr/split 模式下页 MD 加载失败(旧 schema/缺页/网络)即 content=null → 整页空白。
-  // 现在:页 MD 有正文 → 页 MD;页 MD 仅标题(空白页) → 标题+占位说明;
-  // 页 MD 不可用 → 回退全量 OCR 文本,绝不无声空白。
-  const ocrDisplayContent = useMemo(() => {
-    if (ocrPageMd) {
-      const body = ocrPageMd.replace(/^# Page \d+\s*/, '').trim();
-      if (body) return ocrPageMd;
-      return `${ocrPageMd.trimEnd()}\n\n*${t('textbook:ocr.emptyPage', '本页无 OCR 识别文本（可能是空白页或纯图片页）')}*`;
-    }
-    return ocrTextContent;
-  }, [ocrPageMd, ocrTextContent, t]);
+  // ★ task-054: ocrDisplayContent useMemo 已上移至所有 early return 之前(原位置在
+  // PDF 门闸之后,触发 React #310 hook 数量变化崩溃)
 
   const renderOcrOnly = () => (
     <div className="flex-1 overflow-hidden flex flex-col">

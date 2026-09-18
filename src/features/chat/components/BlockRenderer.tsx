@@ -216,6 +216,11 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({
   pending = false,
   className,
 }) => {
+  // ★ task-054 修复(React #310):useMemo 必须在所有 early return 之前——
+  // pending/来源块门闸命中时渲染更少 hooks,恢复后 hook 数变化即崩。
+  // 从注册表获取渲染插件（禁止 switch/case）
+  const plugin = useMemo(() => blockRegistry.get(block.type), [block.type]);
+
   // skeleton: block not ready, show placeholder
   if (pending) {
     return (
@@ -232,9 +237,6 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({
   if (SOURCE_BLOCK_TYPES.has(block.type)) {
     return null;
   }
-
-  // 从注册表获取渲染插件（禁止 switch/case）
-  const plugin = useMemo(() => blockRegistry.get(block.type), [block.type]);
 
   // 获取渲染组件，未注册则使用 GenericBlock
   const Component = plugin?.component ?? GenericBlock;

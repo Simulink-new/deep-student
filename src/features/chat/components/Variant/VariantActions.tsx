@@ -90,10 +90,8 @@ export const VariantActions: React.FC<VariantActionsProps> = ({
   const showRetry = canRetryVariant(variant.status) && onRetry;
   const showDelete = !isLastVariant && onDelete;
 
-  // 如果没有任何可用操作，不显示菜单
-  if (!showCancel && !showRetry && !showDelete) {
-    return null;
-  }
+  // ★ task-054 修复(React #310):useCallback 必须先于「无可用操作 return null」门闸,
+  // 否则变体状态翻转使门闸进出时 hook 数量变化即崩。
 
   // 处理取消
   const handleCancel = useCallback(async () => {
@@ -142,6 +140,11 @@ export const VariantActions: React.FC<VariantActionsProps> = ({
       setIsLoading(false);
     }
   }, [onDelete, messageId, variant.id, isLoading, t]);
+
+  // 如果没有任何可用操作，不显示菜单
+  if (!showCancel && !showRetry && !showDelete) {
+    return null;
+  }
 
   return (
     <AppMenu>
