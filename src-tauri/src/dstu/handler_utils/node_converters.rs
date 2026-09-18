@@ -9,6 +9,7 @@
 //! 修改格式支持时需同步更新文档和其他实现位置。
 
 use tauri::{Emitter, Window};
+use serde_json::Value;
 
 use super::super::path_parser::build_simple_resource_path;
 use super::super::types::{DstuNode, DstuNodeType, DstuWatchEvent};
@@ -239,6 +240,11 @@ pub fn textbook_to_dstu_node(textbook: &VfsTextbook) -> DstuNode {
     .with_metadata(serde_json::json!({
         "filePath": textbook.original_path,
         "isFavorite": textbook.is_favorite,
+        // ★ task-053: dstu_set_metadata(textbooks) 把 readingProgress.page 持久化到
+        // files.last_page,此处必须读回,否则写读闭环断裂(TextbookContentView 经
+        // node.metadata.readingProgress.page 恢复上次页码)
+        "lastPage": textbook.last_page,
+        "readingProgress": textbook.last_page.map(|p| serde_json::json!({ "page": p })),
     }))
 }
 
@@ -261,15 +267,15 @@ pub fn translation_to_dstu_node(translation: &VfsTranslation) -> DstuNode {
         .clone()
         .unwrap_or_else(|| translation.id.clone());
 
-    DstuNode::resource(
-        &translation.id,
-        &path,
-        &name,
-        DstuNodeType::Translation,
-        &translation.resource_id,
-    )
-    .with_timestamps(created_at, updated_at)
-    .with_metadata(serde_json::json!({
+    // ★ task-053: dstu_set_metadata(translations) 把 formality/customPrompt 等
+    // 无独立列的字段并入 translations.metadata_json,此处必须先铺回 metadata 底层,
+    // 再由固定字段覆盖,写读才不会单向丢失。
+    let mut metadata_map: serde_json::Map<String, Value> = translation
+        .metadata
+        .as_ref()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    if let Value::Object(fixed) = serde_json::json!({
         "srcLang": translation.src_lang,
         "tgtLang": translation.tgt_lang,
         "engine": translation.engine,
@@ -280,7 +286,19 @@ pub fn translation_to_dstu_node(translation: &VfsTranslation) -> DstuNode {
         // 🔧 P0-08 修复: 添加源文本和译文到 metadata
         "sourceText": translation.source_text,
         "translatedText": translation.translated_text,
-    }))
+    }) {
+        metadata_map.extend(fixed);
+    }
+
+    DstuNode::resource(
+        &translation.id,
+        &path,
+        &name,
+        DstuNodeType::Translation,
+        &translation.resource_id,
+    )
+    .with_timestamps(created_at, updated_at)
+    .with_metadata(Value::Object(metadata_map))
 }
 
 /// 将 Question (题目卡片快照, card_ 前缀) 转换为 DstuNode
@@ -389,6 +407,8 @@ pub fn session_to_dstu_node(session: &VfsEssaySession) -> DstuNode {
         "totalRounds": session.total_rounds,
         "latestScore": session.latest_score,
         "isFavorite": session.is_favorite,
+        // ★ task-053: dstu_set_metadata(essays) 已持久化 custom_prompt,此处读回补齐闭环
+        "customPrompt": session.custom_prompt,
     }))
 }
 

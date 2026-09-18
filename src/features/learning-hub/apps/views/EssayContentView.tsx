@@ -20,6 +20,7 @@ import {
   type DstuGradingRound,
 } from '@/dstu/adapters/essayDstuAdapter';
 import { getErrorMessage } from '@/utils/errorUtils';
+import { showGlobalNotification } from '@/components/UnifiedNotification';
 
 // 懒加载作文批改工作台
 const EssayGradingWorkbench = lazy(() => 
@@ -90,10 +91,9 @@ const EssayContentView: React.FC<ContentViewProps> = ({
   // 保存会话回调
   const handleSessionSave = useCallback(async (updatedSession: EssayGradingSession) => {
     console.log('[EssayContentView] Session saved:', updatedSession.id);
-    // 更新本地状态
-    setSession(updatedSession);
-    // 更新 DSTU 元数据
-    await essayDstuAdapter.updateSessionMeta(
+    // ★ task-053 B3 修复:适配器返回 Result 而非抛错,必须检查 result.ok——
+    // 旧代码先 setSession 再 await,后端失败时本地已更新,用户误以为保存成功。
+    const result = await essayDstuAdapter.updateSessionMeta(
       updatedSession.id,
       {
         title: updatedSession.title,
@@ -104,7 +104,17 @@ const EssayContentView: React.FC<ContentViewProps> = ({
         isFavorite: updatedSession.isFavorite,
       }
     );
-  }, []);
+    if (!result.ok) {
+      const errMsg = result.error?.toUserMessage?.() || getErrorMessage(result.error);
+      showGlobalNotification('error', t('essay_grading:toast.save_failed', {
+        error: errMsg,
+        defaultValue: '保存失败：{{error}}',
+      }));
+      return; // 不更新本地状态,保持与后端一致
+    }
+    // 更新本地状态
+    setSession(updatedSession);
+  }, [t]);
 
   // 新轮次添加回调
   const handleRoundAdd = useCallback(async (round: DstuGradingRound) => {

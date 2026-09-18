@@ -132,13 +132,18 @@ export function useTextbookCover(
           const safeId = (item.id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
           const rel = `textbook_thumbs/${safeId}-w${targetCssWidth}-d${dpr}.webp`;
           const savedRel = await TauriAPI.saveImageToImagesDir(pure, rel);
-          // 生成可显示的文件 URL
-          try {
-            const appDir = await TauriAPI.getAppDataDir();
-            const abs = `${appDir}/${savedRel}`;
-            const fileUrl = convertFileSrc(abs);
-            dataUrl = fileUrl || dataUrl;
-          } catch {}
+          // ★ task-053 排雷:saveImageToImagesDir 是桩函数,返回 {path:''} 对象而非字符串——
+          // 旧代码直接模板字符串化会得到 "<appDir>/[object Object]" 污染 dataUrl。
+          // 仅在拿到非空字符串路径时才替换为文件 URL,否则保留 data: URL。
+          const savedPath = typeof savedRel === 'string' ? savedRel : (savedRel as { path?: string } | null)?.path;
+          if (savedPath) {
+            try {
+              const appDir = await TauriAPI.getAppDataDir();
+              const abs = `${appDir}/${savedPath}`;
+              const fileUrl = convertFileSrc(abs);
+              dataUrl = fileUrl || dataUrl;
+            } catch {}
+          }
         } catch {}
 
         // 更新内存缓存

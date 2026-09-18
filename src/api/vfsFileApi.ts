@@ -167,12 +167,12 @@ export async function getBlobStreamUrl(fileId: string): Promise<string | null> {
 /**
  * 通过 pdfstream:// URL 发起完整内容的流式请求，返回 Response（供调用方按需取字节/大小）。
  *
- * 注意：协议对无 Range 头的 GET 有 4MB 截断（返回 206 首段），
- * 因此这里显式携带 `Range: bytes=0-` 以一次性取回完整内容；
- * 协议的 CORS 配置（Access-Control-Allow-Headers: Range）已放行该请求头。
+ * ★ task-052 后:无 Range 头的 GET 返回 200 全量(不再 4MB 截断);
+ * 这里显式携带 `Range: bytes=0-` 以 206 一次性取回完整内容,语义不变。
+ * 协议的 CORS 配置(Allow-Headers: Range + Expose-Headers)已放行并暴露所需头。
  *
  * @returns 可用的 Response（状态 200/206，headers 含完整 Content-Length）；
- *          请求失败或被协议拒绝（如非 .pdf 扩展名 403）时返回 null
+ *          请求失败或被协议拒绝时返回 null
  */
 export async function fetchBlobStreamResponse(
   url: string,
@@ -189,8 +189,9 @@ export async function fetchBlobStreamResponse(
 
 /**
  * 探测 pdfstream:// URL 是否可被 <img>/<audio>/<video> 等元素直接消费。
- * 以 `Range: bytes=0-0` 取 1 字节探测（协议目前仅放行 .pdf 扩展名，
- * 非 PDF blob 会 403，探测失败即由调用方回退 base64 路径）。
+ * 以 `Range: bytes=0-0` 取 1 字节探测(★ task-051 起 vfs_blobs 目录内
+ * 放行全部扩展名,非 PDF blob 也可探测;白名单外路径仍 403,
+ * 探测失败即由调用方回退 base64 路径)。
  *
  * @returns 可用时返回原 URL，否则返回 null
  */

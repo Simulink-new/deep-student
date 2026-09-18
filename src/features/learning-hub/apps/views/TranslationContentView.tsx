@@ -103,7 +103,14 @@ const TranslationContentView: React.FC<ContentViewProps> = ({
       };
       
       // 更新翻译记录
-      await translationDstuAdapter.updateTranslation(sessionToSave);
+      // ★ task-053 B3 修复:适配器返回 Result 而非抛错,必须检查 result.ok——
+      // 否则后端写库失败时本地 setSession 已先行更新,用户误以为保存成功(静默断裂)
+      const result = await translationDstuAdapter.updateTranslation(sessionToSave);
+      if (!result.ok) {
+        const errMsg = result.error?.toUserMessage?.() || getErrorMessage(result.error);
+        showGlobalNotification('error', t('translation:toast.save_failed', { error: errMsg }));
+        throw new Error(errMsg); // 让工作台知道保存失败
+      }
       setSession(sessionToSave);
     } catch (error: unknown) {
       console.error('[TranslationContentView] Failed to save translation:', error);

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use rusqlite::OptionalExtension;
+use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 use tauri::{Manager, State, Window};
 
@@ -1853,14 +1853,194 @@ pub async fn dstu_set_metadata(
 
             crate::dstu::handler_utils::note_to_dstu_node(&updated_note)
         }
+        // ★ task-053 修复:翻译保存此前落入 `_` 兜底分支——metadata 序列化后从未写库,
+        // sourceText/translatedText/srcLang/tgtLang/qualityRating/isFavorite 全部静默丢失。
+        "translations" => {
+            let conn = vfs_db
+                .get_conn_safe()
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            let row: Option<(String, Option<String>)> = conn
+                .query_row(
+                    "SELECT resource_id, metadata_json FROM translations WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            let (resource_id, old_metadata_json) =
+                row.ok_or_else(|| DstuError::not_found(&path))?;
+
+            let now = chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string();
+
+            if let Some(v) = metadata.get("title").and_then(|v| v.as_str()) {
+                conn.execute(
+                    "UPDATE translations SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![v, now, id],
+                )
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            }
+            if let Some(v) = metadata.get("srcLang").and_then(|v| v.as_str()) {
+                conn.execute(
+                    "UPDATE translations SET src_lang = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![v, now, id],
+                )
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            }
+            if let Some(v) = metadata.get("tgtLang").and_then(|v| v.as_str()) {
+                conn.execute(
+                    "UPDATE translations SET tgt_lang = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![v, now, id],
+                )
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            }
+            if let Some(v) = metadata.get("isFavorite").and_then(|v| v.as_bool()) {
+                VfsTranslationRepo::set_favorite_with_conn(&conn, &id, v)
+                    .map_err(DstuError::from)?;
+            }
+            if let Some(v) = metadata.get("qualityRating").and_then(|v| v.as_i64()) {
+                if (1..=5).contains(&v) {
+                    VfsTranslationRepo::set_quality_rating_with_conn(&conn, &id, v as i32)
+                        .map_err(DstuError::from)?;
+                }
+            }
+            // formality/customPrompt 无独立列 → 并入 metadata_json(读侧经 converter 合并回 metadata)
+            let mut extra: serde_json::Map<String, Value> = old_metadata_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            let mut extra_changed = false;
+            for key in ["formality", "customPrompt"] {
+                if let Some(v) = metadata.get(key) {
+                    if !v.is_null() {
+                        extra.insert(key.to_string(), v.clone());
+                        extra_changed = true;
+                    }
+                }
+            }
+            if extra_changed {
+                let s = serde_json::to_string(&Value::Object(extra))
+                    .map_err(|e| DstuError::from(e.to_string()))?;
+                conn.execute(
+                    "UPDATE translations SET metadata_json = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![s, now, id],
+                )
+                .map_err(|e| DstuError::from(e.to_string()))?;
+            }
+            // 源文/译文 → resources.data {"source","translated"}(repo 维护 hash/index_state)
+            let source = metadata.get("sourceText").and_then(|v| v.as_str());
+            let translated = metadata.get("translatedText").and_then(|v| v.as_str());
+            if source.is_some() || translated.is_some() {
+                let old_data: Option<String> = conn
+                    .query_row(
+                        "SELECT data FROM resources WHERE id = ?1",
+                        params![resource_id],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| DstuError::from(e.to_string()))?;
+                let mut data_json: Value = old_data
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                if let Some(v) = source {
+                    data_json["source"] = Value::String(v.to_string());
+                }
+                if let Some(v) = translated {
+                    data_json["translated"] = Value::String(v.to_string());
+                }
+                let data_str = serde_json::to_string(&data_json)
+                    .map_err(|e| DstuError::from(e.to_string()))?;
+                crate::vfs::repos::VfsResourceRepo::update_resource_data_with_conn(
+                    &conn,
+                    &resource_id,
+                    &data_str,
+                )
+                .map_err(DstuError::from)?;
+            }
+
+            log::info!(
+                "[DSTU::handlers] dstu_set_metadata: SUCCESS - type=translation, id={}",
+                id
+            );
+            get_resource_by_type_and_id(&vfs_db, &resource_type, &id)
+                .await
+                .map_err(DstuError::from)?
+                .ok_or_else(|| DstuError::not_found(&path))?
+        }
+        // ★ task-053 修复:作文会话元数据(essayType/gradeLevel/customPrompt/isFavorite)
+        // 此前同样被 `_` 分支丢弃。modeId 无 essay_sessions 列,暂不持久化(见文档)。
+        "essays" => {
+            let title = metadata.get("title").and_then(|v| v.as_str());
+            let essay_type = metadata.get("essayType").and_then(|v| v.as_str());
+            let grade_level = metadata.get("gradeLevel").and_then(|v| v.as_str());
+            let custom_prompt = metadata.get("customPrompt").and_then(|v| v.as_str());
+            let is_favorite = metadata.get("isFavorite").and_then(|v| v.as_bool());
+            if metadata.get("modeId").is_some() {
+                log::warn!(
+                    "[DSTU::handlers] dstu_set_metadata: essays modeId has no storage column (essay_sessions), value NOT persisted"
+                );
+            }
+            VfsEssayRepo::update_session(
+                &vfs_db,
+                &id,
+                title,
+                is_favorite,
+                essay_type,
+                grade_level,
+                custom_prompt,
+            )
+            .map_err(DstuError::from)?;
+            log::info!(
+                "[DSTU::handlers] dstu_set_metadata: SUCCESS - type=essay, id={}",
+                id
+            );
+            get_resource_by_type_and_id(&vfs_db, &resource_type, &id)
+                .await
+                .map_err(DstuError::from)?
+                .ok_or_else(|| DstuError::not_found(&path))?
+        }
+        // ★ task-053 修复:教材/文件阅读进度(readingProgress.page → files.last_page)
+        // 与收藏此前也被 `_` 丢弃——阅读进度跨会话恢复因此从未生效(只剩 sessionStorage)。
+        "textbooks" | "files" | "images" => {
+            let last_page = metadata
+                .get("readingProgress")
+                .and_then(|v| v.get("page"))
+                .and_then(|v| v.as_i64())
+                .map(|p| p as i32);
+            let favorite = metadata.get("isFavorite").and_then(|v| v.as_bool());
+            if last_page.is_some() || favorite.is_some() {
+                crate::textbooks_db::TextbooksDb::update_vfs(
+                    &vfs_db,
+                    &id,
+                    crate::textbooks_db::VfsUpdateTextbookParams {
+                        last_page,
+                        favorite,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| DstuError::from(e.to_string()))?;
+                log::info!(
+                    "[DSTU::handlers] dstu_set_metadata: SUCCESS - type={}, id={}, last_page={:?}",
+                    resource_type,
+                    id,
+                    last_page
+                );
+            }
+            get_resource_by_type_and_id(&vfs_db, &resource_type, &id)
+                .await
+                .map_err(DstuError::from)?
+                .ok_or_else(|| DstuError::not_found(&path))?
+        }
         _ => {
             log::warn!(
-                "[DSTU::handlers] dstu_set_metadata: unsupported type {}, falling through to metadata update",
-                resource_type
+                "[DSTU::handlers] dstu_set_metadata: unsupported type {}, NO metadata written (keys: {:?})",
+                resource_type,
+                metadata.as_object().map(|o| o.keys().collect::<Vec<_>>())
             );
-            // 通用元数据更新：直接存储
-            let _metadata_str = serde_json::to_string(&metadata)
-                .unwrap_or_else(|_| "{}".to_string());
+            // 未覆盖类型:返回节点但不写任何数据(此前版本注释声称"直接存储",实际从未写库)
             get_resource_by_type_and_id(&vfs_db, &resource_type, &id)
                 .await
                 .map_err(|e| DstuError::from(e))?

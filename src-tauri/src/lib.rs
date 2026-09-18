@@ -1631,6 +1631,10 @@ pub fn run() {
             ,crate::cmd::textbooks::textbooks_add
             ,crate::cmd::textbooks::textbooks_update_bookmarks
             ,crate::cmd::textbooks::vfs_ensure_ocr_pipeline
+            // ★ task-053: 补注册——handler 早已存在(textbooks.rs:1583),前端
+            // TextbookContentView/NoteContentView 按页 OCR MD 依赖,漏注册导致
+            // "command not found"(有全量文本回退,非致命但按页视图失效)
+            ,crate::cmd::textbooks::get_ocr_page_md
             // =================================================
             // 智能题目集命令（Question Bank V2）
             // =================================================

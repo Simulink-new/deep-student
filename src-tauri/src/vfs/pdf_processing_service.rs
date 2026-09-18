@@ -884,16 +884,43 @@ impl PdfProcessingService {
             // 注意:ocr_completed 不可遮蔽(shadow)—— stage-3 门控读取的是外层变量。
             let mut preview_json = preview_json;
             if total_pages > 0 {
-                let cached_pages = preview_json
+                let parsed_preview = preview_json
                     .as_deref()
-                    .and_then(|pj| serde_json::from_str::<PdfPreviewJson>(pj).ok())
+                    .and_then(|pj| serde_json::from_str::<PdfPreviewJson>(pj).ok());
+                let cached_pages = parsed_preview
+                    .as_ref()
                     .map(|p| p.pages.len())
                     .unwrap_or(0);
-                if cached_pages > 0 && cached_pages < total_pages {
-                    warn!(
-                        "[PdfProcessingService] Stale preview detected for file {}: {} cached pages < {} real pages, regenerating full preview",
-                        file_id, cached_pages, total_pages
-                    );
+                // ★ task-053 修复:除页数截断(task-049)外,再检测「preview_json 引用的
+                // blob 文件已从磁盘消失」。实测 2026-09 有 708 个历史 JPEG 页图 blobs 行
+                // 还在(ref_count=1)但磁盘文件丢失;get_blob_path_with_conn 只查行不查盘,
+                // 页数也齐 → 旧自愈不触发 → 压缩/OCR 阶段读到不存在的文件。
+                // 任一页 blob 缺失(无行或文件不在)即全量重渲染。
+                let preview_blob_missing = if cached_pages > 0 && cached_pages >= total_pages {
+                    let blobs_dir = self.db.blobs_dir();
+                    parsed_preview.as_ref().is_some_and(|p| {
+                        p.pages.iter().any(|page| {
+                            match VfsBlobRepo::get_blob_path_with_conn(&conn, blobs_dir, &page.blob_hash) {
+                                Ok(Some(path)) => !path.exists(),
+                                _ => true, // 无 blobs 行或查询出错 → 视为缺失
+                            }
+                        })
+                    })
+                } else {
+                    false // 页数已不齐,走原有截断分支即可
+                };
+                if (cached_pages > 0 && cached_pages < total_pages) || preview_blob_missing {
+                    if preview_blob_missing {
+                        warn!(
+                            "[PdfProcessingService] Preview blob files missing on disk for file {}, regenerating full preview",
+                            file_id
+                        );
+                    } else {
+                        warn!(
+                            "[PdfProcessingService] Stale preview detected for file {}: {} cached pages < {} real pages, regenerating full preview",
+                            file_id, cached_pages, total_pages
+                        );
+                    }
                     match self.regenerate_pdf_preview(file_id).await {
                         Ok(Some((new_pj, real_pages))) => {
                             info!(

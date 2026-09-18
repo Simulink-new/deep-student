@@ -318,18 +318,29 @@ fn parse_range_header(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
 }
 
 /// 根据文件扩展名返回 MIME 类型
+/// ★ task-053: 补齐常见音视频/图片格式——缺省时回 application/octet-stream,
+/// Chromium 媒体栈虽会嗅探兜底,但显式 MIME 可消除歧义(如 mov/mkv 时长识别)
 fn get_mime_type(path: &PathBuf) -> &'static str {
-    match path.extension().and_then(|s| s.to_str()) {
-        Some("pdf") => "application/pdf",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("svg") => "image/svg+xml",
-        Some("webp") => "image/webp",
-        Some("mp4") => "video/mp4",
-        Some("webm") => "video/webm",
-        Some("txt") => "text/plain",
-        Some("json") => "application/json",
+    match path.extension().and_then(|s| s.to_str()).map(|e| e.to_ascii_lowercase()) {
+        Some(ref e) if e == "pdf" => "application/pdf",
+        Some(ref e) if e == "png" => "image/png",
+        Some(ref e) if e == "jpg" || e == "jpeg" => "image/jpeg",
+        Some(ref e) if e == "gif" => "image/gif",
+        Some(ref e) if e == "svg" => "image/svg+xml",
+        Some(ref e) if e == "webp" => "image/webp",
+        Some(ref e) if e == "bmp" => "image/bmp",
+        Some(ref e) if e == "mp4" || e == "m4v" => "video/mp4",
+        Some(ref e) if e == "webm" => "video/webm",
+        Some(ref e) if e == "mov" => "video/quicktime",
+        Some(ref e) if e == "mkv" => "video/x-matroska",
+        Some(ref e) if e == "avi" => "video/x-msvideo",
+        Some(ref e) if e == "mp3" => "audio/mpeg",
+        Some(ref e) if e == "m4a" || e == "aac" => "audio/mp4",
+        Some(ref e) if e == "wav" => "audio/wav",
+        Some(ref e) if e == "ogg" || e == "opus" => "audio/ogg",
+        Some(ref e) if e == "flac" => "audio/flac",
+        Some(ref e) if e == "txt" => "text/plain",
+        Some(ref e) if e == "json" => "application/json",
         _ => "application/octet-stream",
     }
 }

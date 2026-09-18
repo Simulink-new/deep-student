@@ -498,52 +498,8 @@ export async function createSingleResourceRefData(
 // 导出
 // ============================================================================
 
-// ============================================================================
-// ResourceHash 更新 API (HIGH-005)
-// ============================================================================
-
-/**
- * 更新资源的 resourceHash
- *
- * ★ HIGH-005: 资源内容变更后同步更新 resourceHash
- * - 在 DSTU update 操作后调用
- * - 通知所有订阅者更新 hash
- *
- * @param sourceId 业务 ID (note_xxx, tb_xxx等)
- * @param newHash 新的资源 hash
- * @returns Result<void, VfsError>
- */
-export async function updateResourceHashV2(
-  sourceId: string,
-  newHash: string
-): Promise<Result<void>> {
-  try {
-    console.log(LOG_PREFIX, 'updateResourceHashV2:', { sourceId, newHash });
-
-    if (!sourceId || !newHash) {
-      return err(
-        toVfsError(
-          new Error(i18n.t('chatV2:vfsRef.sourceIdAndHashRequired')),
-          i18n.t('chatV2:vfsRef.sourceIdAndHashRequired'),
-          { sourceId, newHash }
-        )
-      );
-    }
-
-    // 调用后端更新资源 hash
-    await invoke('vfs_update_resource_hash', {
-      sourceId,
-      newHash,
-    });
-
-    console.log(LOG_PREFIX, 'resourceHash updated:', { sourceId, newHash });
-    return ok(undefined);
-  } catch (error: unknown) {
-    console.error(LOG_PREFIX, 'updateResourceHashV2 failed:', getErrorMessage(error));
-    const vfsError = toVfsError(error, i18n.t('chatV2:vfsRef.updateHashFailed'), { sourceId, newHash });
-    return err(vfsError);
-  }
-}
+// ★ task-053: 已删除死代码 updateResourceHashV2 / vfs_update_resource_hash——
+// 该 invoke 无对应 Rust 后端实现(见 docs/analysis/COMMAND_REGISTRY.md),且全库无调用方。
 
 /**
  * 获取资源被引用的数量
@@ -722,7 +678,6 @@ export const vfsRefApi = {
   resolveResourceRefsV2,
   getResourcePathV2,
   updatePathCacheV2,
-  updateResourceHashV2,
   getResourceRefCountV2,
   // 辅助函数
   resolveResourceRefsBatch,

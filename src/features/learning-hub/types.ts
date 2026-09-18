@@ -460,7 +460,9 @@ export function inferFilePreviewTypeFromName(fileName: string): ResourceListItem
   if (['md', 'markdown'].includes(ext)) {
     return 'markdown';
   }
-  if (['txt', 'html', 'htm', 'csv', 'json', 'xml', 'rtf', 'epub'].includes(ext)) {
+  // ★ task-053: epub 移出 text——它是 zip 二进制,按纯文本渲染只会显示乱码;
+  // 归 'none'(不支持预览+可下载),后续如需可读版再接 epub.js
+  if (['txt', 'html', 'htm', 'csv', 'json', 'xml', 'rtf'].includes(ext)) {
     return 'text';
   }
 
