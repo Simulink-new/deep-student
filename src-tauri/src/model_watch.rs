@@ -9,6 +9,8 @@
 //! **全局**双索引（完整 id + 去 `厂商/` 前缀的短名，跨所有供应商），同一
 //! 模型被多个供应商发现时合并为一条 pending，带全部来源；聚合平台
 //! （NVIDIA NIM）的来源排在末尾，前端默认选中的首位来源即原生供应商。
+//! 巡检范围：**仅配置了 API Key 的供应商**——无 key 的平台（含内置
+//! NVIDIA NIM）不探测，杜绝聚合平台全目录涌入。
 //!
 //! 端点约定与前端 VendorModelFetcher 保持一致（已 curl 验证）：
 //! - OpenAI 兼容: `GET {base_url}/models` + `Authorization: Bearer`
@@ -187,10 +189,8 @@ async fn fetch_remote_models(
         FetchKind::Unsupported => Err("该供应商类型不支持模型列表巡检".to_string()),
         FetchKind::OpenAiCompat => {
             let mut req = client.get(format!("{}/models", base));
-            // NVIDIA NIM 无需认证；其余供应商带 Bearer
-            if vendor.provider_type.to_lowercase() != "nvidia" && !vendor.api_key.is_empty() {
-                req = req.header("Authorization", format!("Bearer {}", vendor.api_key));
-            }
+            // 调用方保证供应商已配置 key；NIM 等平台同样接受 Bearer 认证
+            req = req.header("Authorization", format!("Bearer {}", vendor.api_key));
             for (k, v) in &vendor.headers {
                 req = req.header(k, v);
             }
@@ -453,6 +453,21 @@ async fn run_check_inner(
     }
 
     let mut pending = read_pending(db);
+
+    // 持久自洁：剔除无 key / 已删除供应商的来源，来源清空的条目整体移除
+    // （否则历史存量条目会绕过「仅探测有 key 平台」的新规则继续显示）
+    let keyed_vendor_ids: HashSet<String> = vendors
+        .iter()
+        .filter(|v| !v.api_key.is_empty())
+        .map(|v| v.id.clone())
+        .collect();
+    let before = pending.len();
+    pending.retain_mut(|d| {
+        d.sources.retain(|s| keyed_vendor_ids.contains(&s.vendor_id));
+        !d.sources.is_empty()
+    });
+    let mut pending_dirty = pending.len() != before;
+
     let dismissed = read_dismissed(db);
     // 现存 pending 已覆盖的模型短名
     let pending_keys: HashSet<String> = pending
@@ -475,13 +490,12 @@ async fn run_check_inner(
     let mut newly_found: Vec<DiscoveredModel> = Vec::new();
     let mut found_index: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
-    let mut pending_dirty = false;
     let now = now_rfc3339();
 
     for vendor in &vendors {
-        // 无 key 的供应商跳过（NVIDIA 除外，其模型列表无需认证）
-        let is_nvidia = vendor.provider_type.to_lowercase() == "nvidia";
-        if vendor.api_key.is_empty() && !is_nvidia {
+        // 只探测配置了 API Key 的供应商——无 key 的平台（含内置 NVIDIA NIM）
+        // 不参与巡检，避免聚合平台全目录涌入发现区
+        if vendor.api_key.is_empty() {
             continue;
         }
         if vendor.base_url.trim().is_empty() {
@@ -632,13 +646,28 @@ pub fn start_daily_scheduler(app: AppHandle, llm: Arc<LLMManager>, db: Arc<Datab
 
 // ==================== Tauri 命令 ====================
 
-/// 获取巡检状态：上次运行时间 + 待处理新模型列表
+/// 获取巡检状态：上次运行时间 + 待处理新模型列表。
+/// 无 key / 已删除供应商的残留来源在此读时过滤（持久清理由巡检统一写回），
+/// 保证打开设置页立即符合「仅探测有 key 平台」的展示预期。
 #[tauri::command]
 pub async fn model_watch_get_state(state: State<'_, AppState>) -> Result<ModelWatchState> {
     let db = &state.database;
+    let keyed_vendors: HashSet<String> = state
+        .llm_manager
+        .read_user_vendor_configs()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|v| !v.api_key.is_empty())
+        .map(|v| v.id)
+        .collect();
+    let pending: Vec<DiscoveredModel> = read_pending(db)
+        .into_iter()
+        .filter(|d| d.sources.iter().any(|s| keyed_vendors.contains(&s.vendor_id)))
+        .collect();
     Ok(ModelWatchState {
         last_run_at: read_last_run_at(db),
-        pending: read_pending(db),
+        pending,
         running: RUNNING.load(Ordering::SeqCst),
     })
 }
