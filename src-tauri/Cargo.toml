@@ -1,6 +1,6 @@
 [package]
 name = "deep-student"
-version = "0.9.40-fork.1"
+version = "0.9.41"
 description = "Deep Student (independent maintenance fork) - AI驱动的智能学习助手"
 authors = ["Simulink <liangyouning.com@gmail.com>", "DeepStudent contributors"]
 edition = "2021"
