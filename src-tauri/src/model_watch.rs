@@ -542,38 +542,97 @@ pub async fn model_watch_dismiss(
     write_pending(db, &pending)
 }
 
-/// 把发现的新模型添加为「停用状态的草稿」模型条目，供用户在模型列表中完善后启用
+/// 「使用」发现的新模型：直接在对应供应商下创建**启用状态**的模型条目。
+///
+/// 条目参数取默认值（max_output_tokens=8192 / temperature=0.7 / general adapter），
+/// api_protocol 继承供应商配置（save 时仍会按 vendor 规范化），label 优先用巡检
+/// 时拿到的展示名（Gemini displayName / Anthropic display_name），能力位按
+/// model_id 启发式粗猜——猜错只影响 UI 标签，可在模型编辑器修正。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelWatchAdoptResult {
+    /// false = 已存在同 vendor+model 条目（幂等命中），本次未新建
+    pub created: bool,
+    /// 供应商是否已配置 API Key——无 key 时条目虽启用但运行时不可用，前端据此提醒
+    pub vendor_has_key: bool,
+}
+
+/// 按 model_id 粗猜能力位。只认子串证据强的模式，宁缺勿滥：
+/// vision/-vl → 多模态；thinking/reason → 推理；embed/bge → 向量；rerank → 重排。
+fn guess_capabilities(model_id: &str) -> (bool, bool, bool, bool) {
+    let id = model_id.to_lowercase();
+    let multimodal = id.contains("vision") || id.contains("-vl");
+    let reasoning = id.contains("thinking") || id.contains("reason");
+    let embedding = id.contains("embed") || id.contains("bge");
+    let reranker = id.contains("rerank");
+    (multimodal, reasoning, embedding, reranker)
+}
+
 #[tauri::command]
-pub async fn model_watch_add_as_draft(
+pub async fn model_watch_adopt_model(
     vendor_id: String,
     model_id: String,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<ModelWatchAdoptResult> {
     let llm = &state.llm_manager;
+
+    // 供应商必须仍存在（pending 里可能残留已被删除的供应商）
+    let vendors = llm.read_user_vendor_configs().await?;
+    let vendor = vendors
+        .iter()
+        .find(|v| v.id == vendor_id)
+        .ok_or_else(|| {
+            AppError::configuration(format!("供应商不存在或已删除: {}", vendor_id))
+        })?;
+    let vendor_has_key = !vendor.api_key.is_empty();
+
+    let db = &state.database;
+
+    // label 优先取巡检时的展示名，缺失回退 model_id
+    let label = read_pending(db)
+        .into_iter()
+        .find(|d| d.vendor_id == vendor_id && d.model_id.eq_ignore_ascii_case(&model_id))
+        .map(|d| d.label)
+        .filter(|l| !l.trim().is_empty())
+        .unwrap_or_else(|| model_id.clone());
 
     // 幂等：已存在同 vendor+model 的条目时只清理 pending，不重复建
     let mut profiles = llm.read_user_model_profiles().await?;
     let exists = profiles
         .iter()
         .any(|p| p.vendor_id == vendor_id && p.model.eq_ignore_ascii_case(&model_id));
-    if !exists {
-        let draft = ModelProfile {
+    let created = if !exists {
+        let (is_multimodal, is_reasoning, is_embedding, is_reranker) =
+            guess_capabilities(&model_id);
+        let adopted = ModelProfile {
             vendor_id: vendor_id.clone(),
-            label: model_id.clone(),
+            label,
             model: model_id.clone(),
-            enabled: false, // 草稿：先不启用，等用户在模型列表中完善参数
+            enabled: true,
+            is_multimodal,
+            is_reasoning,
+            is_embedding,
+            is_reranker,
+            api_protocol: vendor.api_protocol.clone(),
             ..Default::default()
         };
-        profiles.push(draft);
+        profiles.push(adopted);
         llm.save_model_profiles(&profiles).await?;
-    }
+        true
+    } else {
+        false
+    };
 
     // 从待处理列表移除（不加入 dismissed：它已在 profiles 中，巡检自然不会再见）
-    let db = &state.database;
     let dkey = dismissed_key(&vendor_id, &model_id);
     let pending: Vec<DiscoveredModel> = read_pending(db)
         .into_iter()
         .filter(|d| dismissed_key(&d.vendor_id, &d.model_id) != dkey)
         .collect();
-    write_pending(db, &pending)
+    write_pending(db, &pending)?;
+
+    Ok(ModelWatchAdoptResult {
+        created,
+        vendor_has_key,
+    })
 }

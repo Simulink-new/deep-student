@@ -1012,7 +1012,7 @@ pub fn run() {
             crate::model_watch::model_watch_get_state,
             crate::model_watch::model_watch_run_now,
             crate::model_watch::model_watch_dismiss,
-            crate::model_watch::model_watch_add_as_draft,
+            crate::model_watch::model_watch_adopt_model,
             crate::commands::test_api_connection,
 
             crate::commands::get_model_adapter_options,

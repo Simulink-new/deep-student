@@ -3,13 +3,14 @@
  *
  * 后端 model_watch 每日巡检各供应商 /models 端点，把本地尚未配置的新模型
  * 持久化到 settings 并 emit `model-watch:discovered`。本组件展示待处理列表：
- * - 添加：生成「停用状态的草稿」模型条目，用户在模型列表完善参数后启用
+ * - 使用：在对应供应商下直接创建启用状态的模型条目（model_watch_adopt_model），
+ *   成功后广播 api_configurations_changed 让设置页/聊天模型选择器即时刷新
  * - 忽略：加入忽略清单，巡检不再报告该模型
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowClockwise, Plus, Sparkle, X } from '@phosphor-icons/react';
+import { ArrowClockwise, Lightning, Sparkle, X } from '@phosphor-icons/react';
 import { NotionButton } from '@/components/ui/NotionButton';
 import { SettingSection } from './SettingsCommon';
 import { TauriAPI } from '@/utils/tauriApi';
@@ -35,6 +36,11 @@ interface ModelWatchRunSummary {
   vendorsChecked: number;
   vendorsFailed: number;
   newFound: number;
+}
+
+interface ModelWatchAdoptResult {
+  created: boolean;
+  vendorHasKey: boolean;
 }
 
 const DISCOVERED_EVENT = 'model-watch:discovered';
@@ -108,18 +114,26 @@ const ModelWatchSection: React.FC = () => {
     }
   }, [loadState, t]);
 
-  const handleAdd = useCallback(async (item: DiscoveredModel) => {
+  const handleAdopt = useCallback(async (item: DiscoveredModel) => {
     const key = itemKey(item);
     setActingKey(key);
     try {
-      await TauriAPI.invoke('model_watch_add_as_draft', {
+      const result = await TauriAPI.invoke<ModelWatchAdoptResult>('model_watch_adopt_model', {
         vendorId: item.vendorId,
         modelId: item.modelId,
       });
       setPending((prev) => prev.filter((p) => itemKey(p) !== key));
-      showGlobalNotification('success', t('added_draft'));
+      // 供应商/模型列表的消费者（设置页 useVendorModels、聊天模型选择器等）
+      // 都监听该事件并从后端重拉，这里派发即完成「放入模型供应商」的即时刷新
+      window.dispatchEvent(new CustomEvent('api_configurations_changed'));
+      showGlobalNotification(
+        result.vendorHasKey ? 'success' : 'warning',
+        result.vendorHasKey
+          ? t('adopted', { vendor: item.vendorName })
+          : t('adopted_no_key', { vendor: item.vendorName }),
+      );
     } catch (err) {
-      showGlobalNotification('error', t('add_failed', { error: getErrorMessage(err) }));
+      showGlobalNotification('error', t('adopt_failed', { error: getErrorMessage(err) }));
     } finally {
       setActingKey(null);
     }
@@ -136,7 +150,7 @@ const ModelWatchSection: React.FC = () => {
       setPending((prev) => prev.filter((p) => itemKey(p) !== key));
       showGlobalNotification('success', t('dismissed'));
     } catch (err) {
-      showGlobalNotification('error', t('add_failed', { error: getErrorMessage(err) }));
+      showGlobalNotification('error', t('adopt_failed', { error: getErrorMessage(err) }));
     } finally {
       setActingKey(null);
     }
@@ -195,10 +209,10 @@ const ModelWatchSection: React.FC = () => {
                   size="sm"
                   variant="ghost"
                   disabled={busy}
-                  onClick={() => void handleAdd(item)}
+                  onClick={() => void handleAdopt(item)}
                 >
-                  <Plus className="w-3.5 h-3.5 mr-0.5" />
-                  {t('add_draft')}
+                  <Lightning className="w-3.5 h-3.5 mr-0.5" />
+                  {t('use')}
                 </NotionButton>
                 <NotionButton
                   size="sm"
