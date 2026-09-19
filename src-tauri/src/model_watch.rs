@@ -5,6 +5,11 @@
 //! 尚未配置」的新模型持久化到 settings，并通过 `model-watch:discovered`
 //! 事件通知前端设置页。
 //!
+//! 归属与去重（2026-09-19 修复「全部归到英伟达」）：已知模型判断为
+//! **全局**双索引（完整 id + 去 `厂商/` 前缀的短名，跨所有供应商），同一
+//! 模型被多个供应商发现时合并为一条 pending，带全部来源；聚合平台
+//! （NVIDIA NIM）的来源排在末尾，前端默认选中的首位来源即原生供应商。
+//!
 //! 端点约定与前端 VendorModelFetcher 保持一致（已 curl 验证）：
 //! - OpenAI 兼容: `GET {base_url}/models` + `Authorization: Bearer`
 //! - Gemini:      `GET {base_url}/v1beta/models?key=...&pageSize=100`
@@ -51,15 +56,28 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 
 // ==================== 对外类型 ====================
 
+/// 一个新模型在某个供应商下的来源（聚合平台如 NVIDIA NIM 的模型 id 可能
+/// 带厂商前缀，如 `zai/glm-4.6`，与原生供应商的 `glm-4.6` 同模型不同 id）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VendorSource {
+    pub vendor_id: String,
+    pub vendor_name: String,
+    /// 该供应商下的实际模型 id（adopt 时按它建条目）
+    pub model_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredModel {
-    pub vendor_id: String,
-    pub vendor_name: String,
+    /// 主模型 id（第一个发现来源的 id，仅作展示与稳定 key）
     pub model_id: String,
     /// 展示名（Gemini displayName / Anthropic display_name），无则等同 model_id
     pub label: String,
     pub discovered_at: String,
+    /// 上架该模型的全部供应商；顺序为发现顺序，聚合平台（nvidia 等）排最后，
+    /// 前端默认选中首位即「原生供应商」
+    pub sources: Vec<VendorSource>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,16 +289,70 @@ async fn fetch_remote_models(
 
 // ==================== 持久化 ====================
 
-fn dismissed_key(vendor_id: &str, model_id: &str) -> String {
-    format!("{}::{}", vendor_id, model_id.to_lowercase())
+/// 模型短名：去掉聚合平台的厂商前缀（`zai/glm-4.6` → `glm-4.6`），小写。
+/// 跨供应商去重（known/pending/dismissed）统一按短名比较，避免同一模型
+/// 因 NVIDIA NIM 等聚合平台带前缀的 id 而绕过去重。
+fn short_model_name(id: &str) -> String {
+    id.rsplit('/').next().unwrap_or(id).to_lowercase()
+}
+
+/// 聚合型供应商（上架全厂商模型的平台）排在来源列表末尾，
+/// 让原生供应商成为前端默认选中的「使用」目标。
+fn order_sources(sources: &mut [VendorSource]) {
+    sources.sort_by_key(|s| is_aggregator(&s.vendor_id, &s.vendor_name));
+}
+
+/// 仅按现有证据识别 NVIDIA NIM；后续发现其他聚合平台（OpenRouter 等）再扩
+fn is_aggregator(_vendor_id: &str, vendor_name: &str) -> bool {
+    vendor_name.to_lowercase().contains("nvidia")
+        || vendor_name.to_lowercase().contains("nim")
+}
+
+/// 旧版单来源 pending 条目（vendorId/vendorName 顶层字段），仅用于兼容读盘
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyDiscoveredModel {
+    vendor_id: String,
+    vendor_name: String,
+    model_id: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    discovered_at: String,
 }
 
 fn read_pending(db: &Database) -> Vec<DiscoveredModel> {
-    db.get_setting(KEY_PENDING)
+    let raw = db
+        .get_setting(KEY_PENDING)
         .ok()
         .flatten()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let values: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let mut list = Vec::with_capacity(values.len());
+    for v in values {
+        if v.get("sources").is_some() {
+            if let Ok(item) = serde_json::from_value::<DiscoveredModel>(v) {
+                list.push(item);
+            }
+        } else if let Ok(old) = serde_json::from_value::<LegacyDiscoveredModel>(v) {
+            // 旧格式迁移：单来源转为 sources 数组，label 缺失回退 model_id
+            list.push(DiscoveredModel {
+                model_id: old.model_id.clone(),
+                label: if old.label.is_empty() {
+                    old.model_id.clone()
+                } else {
+                    old.label
+                },
+                discovered_at: old.discovered_at,
+                sources: vec![VendorSource {
+                    vendor_id: old.vendor_id,
+                    vendor_name: old.vendor_name,
+                    model_id: old.model_id,
+                }],
+            });
+        }
+    }
+    list
 }
 
 fn write_pending(db: &Database, pending: &[DiscoveredModel]) -> Result<()> {
@@ -291,12 +363,16 @@ fn write_pending(db: &Database, pending: &[DiscoveredModel]) -> Result<()> {
 }
 
 fn read_dismissed(db: &Database) -> HashSet<String> {
-    db.get_setting(KEY_DISMISSED)
+    let raw = db
+        .get_setting(KEY_DISMISSED)
         .ok()
         .flatten()
-        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .unwrap_or_default();
+    serde_json::from_str::<Vec<String>>(&raw)
         .unwrap_or_default()
         .into_iter()
+        // 兼容旧键格式 `{vendor_id}::{model}`：统一归一为模型短名
+        .map(|k| short_model_name(k.split("::").last().unwrap_or(&k)))
         .collect()
 }
 
@@ -366,22 +442,25 @@ async fn run_check_inner(
         Vec::new()
     });
 
-    // 已知模型集合（大小写不敏感）：vendor_id -> {model_id_lower}
-    let mut known: std::collections::HashMap<String, HashSet<String>> =
-        std::collections::HashMap::new();
+    // 已知模型全局双索引（大小写不敏感）：完整 id + 短名。
+    // 跨供应商全局比对——聚合平台（NVIDIA NIM 等）上架的第三方模型若已
+    // 在其原生供应商下配置（含带前缀变体），不再重复报告。
+    let mut known_full: HashSet<String> = HashSet::new();
+    let mut known_short: HashSet<String> = HashSet::new();
     for p in &profiles {
-        known
-            .entry(p.vendor_id.clone())
-            .or_default()
-            .insert(p.model.to_lowercase());
+        known_full.insert(p.model.to_lowercase());
+        known_short.insert(short_model_name(&p.model));
     }
 
     let mut pending = read_pending(db);
     let dismissed = read_dismissed(db);
-    // pending 中已有的不再重复加入
+    // 现存 pending 已覆盖的模型短名
     let pending_keys: HashSet<String> = pending
         .iter()
-        .map(|d| dismissed_key(&d.vendor_id, &d.model_id))
+        .flat_map(|d| {
+            std::iter::once(short_model_name(&d.model_id))
+                .chain(d.sources.iter().map(|s| short_model_name(&s.model_id)))
+        })
         .collect();
 
     let client = reqwest::Client::builder()
@@ -392,7 +471,11 @@ async fn run_check_inner(
 
     let mut vendors_checked = 0usize;
     let mut vendors_failed = 0usize;
+    // 本轮新发现的模型（短名 → 下标），同模型多供应商来源合并进同一条
     let mut newly_found: Vec<DiscoveredModel> = Vec::new();
+    let mut found_index: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut pending_dirty = false;
     let now = now_rfc3339();
 
     for vendor in &vendors {
@@ -408,25 +491,51 @@ async fn run_check_inner(
         match fetch_remote_models(&client, vendor).await {
             Ok(remote) => {
                 vendors_checked += 1;
-                let known_for_vendor = known.get(&vendor.id);
                 for m in remote {
-                    let key_lower = m.id.to_lowercase();
-                    let already_known = known_for_vendor
-                        .map(|s| s.contains(&key_lower))
-                        .unwrap_or(false);
-                    let dkey = dismissed_key(&vendor.id, &m.id);
-                    if already_known || dismissed.contains(&dkey) || pending_keys.contains(&dkey)
-                    {
+                    let full = m.id.to_lowercase();
+                    let short = short_model_name(&m.id);
+                    // 任何供应商（含带前缀变体）已配置 → 已知，不报
+                    if known_full.contains(&full) || known_short.contains(&short) {
                         continue;
                     }
-                    let item = DiscoveredModel {
+                    if dismissed.contains(&short) {
+                        continue;
+                    }
+
+                    let source = VendorSource {
                         vendor_id: vendor.id.clone(),
                         vendor_name: vendor.name.clone(),
-                        model_id: m.id,
+                        model_id: m.id.clone(),
+                    };
+
+                    // 本轮已发现同模型（短名相同）→ 追加来源
+                    if let Some(&i) = found_index.get(&short) {
+                        if !newly_found[i].sources.iter().any(|s| s.vendor_id == vendor.id) {
+                            newly_found[i].sources.push(source);
+                        }
+                        continue;
+                    }
+                    // 早前轮次已入 pending 的同模型 → 把新来源补进旧条目
+                    if pending_keys.contains(&short) {
+                        if let Some(entry) = pending
+                            .iter_mut()
+                            .find(|d| short_model_name(&d.model_id) == short)
+                        {
+                            if !entry.sources.iter().any(|s| s.vendor_id == vendor.id) {
+                                entry.sources.push(source);
+                                pending_dirty = true;
+                            }
+                        }
+                        continue;
+                    }
+
+                    found_index.insert(short, newly_found.len());
+                    newly_found.push(DiscoveredModel {
+                        model_id: m.id.clone(),
                         label: m.label,
                         discovered_at: now.clone(),
-                    };
-                    newly_found.push(item);
+                        sources: vec![source],
+                    });
                 }
             }
             Err(e) => {
@@ -448,14 +557,36 @@ async fn run_check_inner(
             newly_found.len(),
             newly_found
                 .iter()
-                .map(|d| format!("{}/{}", d.vendor_name, d.model_id))
+                .map(|d| {
+                    format!(
+                        "{} [{}]",
+                        d.model_id,
+                        d.sources
+                            .iter()
+                            .map(|s| s.vendor_name.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
                 .collect::<Vec<_>>()
         );
+    }
+
+    // 聚合平台来源排末尾（原生供应商成为默认「使用」目标），有变更才落盘
+    for d in &mut newly_found {
+        order_sources(&mut d.sources);
+    }
+    if !newly_found.is_empty() || pending_dirty {
+        for d in &mut pending {
+            order_sources(&mut d.sources);
+        }
         pending.extend(newly_found.iter().cloned());
         write_pending(db, &pending)?;
-        if let Some(app) = app {
-            if let Err(e) = app.emit(MODEL_WATCH_DISCOVERED_EVENT, &newly_found) {
-                log::warn!("[ModelWatch] 事件发送失败: {}", e);
+        if !newly_found.is_empty() {
+            if let Some(app) = app {
+                if let Err(e) = app.emit(MODEL_WATCH_DISCOVERED_EVENT, &newly_found) {
+                    log::warn!("[ModelWatch] 事件发送失败: {}", e);
+                }
             }
         }
     }
@@ -521,23 +652,27 @@ pub async fn model_watch_run_now(
     run_check(Some(&app), &state.llm_manager, &state.database).await
 }
 
-/// 忽略某个新模型（之后巡检不再报告它）
+/// 忽略某个新模型（按模型短名，对该模型的所有供应商来源生效）
 #[tauri::command]
 pub async fn model_watch_dismiss(
     vendor_id: String,
     model_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    let _ = vendor_id; // 保留参数以维持前端调用兼容；归属判断已改为模型级
     let db = &state.database;
-    let dkey = dismissed_key(&vendor_id, &model_id);
+    let short = short_model_name(&model_id);
 
     let mut dismissed = read_dismissed(db);
-    dismissed.insert(dkey.clone());
+    dismissed.insert(short.clone());
     write_dismissed(db, &dismissed)?;
 
     let pending: Vec<DiscoveredModel> = read_pending(db)
         .into_iter()
-        .filter(|d| dismissed_key(&d.vendor_id, &d.model_id) != dkey)
+        .filter(|d| {
+            short_model_name(&d.model_id) != short
+                && !d.sources.iter().any(|s| short_model_name(&s.model_id) == short)
+        })
         .collect();
     write_pending(db, &pending)
 }
@@ -591,7 +726,11 @@ pub async fn model_watch_adopt_model(
     // label 优先取巡检时的展示名，缺失回退 model_id
     let label = read_pending(db)
         .into_iter()
-        .find(|d| d.vendor_id == vendor_id && d.model_id.eq_ignore_ascii_case(&model_id))
+        .find(|d| {
+            d.sources
+                .iter()
+                .any(|s| s.vendor_id == vendor_id && s.model_id.eq_ignore_ascii_case(&model_id))
+        })
         .map(|d| d.label)
         .filter(|l| !l.trim().is_empty())
         .unwrap_or_else(|| model_id.clone());
@@ -623,11 +762,15 @@ pub async fn model_watch_adopt_model(
         false
     };
 
-    // 从待处理列表移除（不加入 dismissed：它已在 profiles 中，巡检自然不会再见）
-    let dkey = dismissed_key(&vendor_id, &model_id);
+    // 从待处理列表移除整条（同模型的其他来源也不再提示——全局 known 双索引
+    // 会把它的短名/完整 id 变体一并视为已配置）
+    let short = short_model_name(&model_id);
     let pending: Vec<DiscoveredModel> = read_pending(db)
         .into_iter()
-        .filter(|d| dismissed_key(&d.vendor_id, &d.model_id) != dkey)
+        .filter(|d| {
+            short_model_name(&d.model_id) != short
+                && !d.sources.iter().any(|s| short_model_name(&s.model_id) == short)
+        })
         .collect();
     write_pending(db, &pending)?;
 

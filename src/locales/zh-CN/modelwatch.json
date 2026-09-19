@@ -7,6 +7,7 @@
   "never_run": "尚未执行过检查",
   "no_new_models": "暂未发现新模型",
   "use": "使用",
+  "choose_vendor": "添加到供应商「{{vendor}}」",
   "dismiss": "忽略",
   "adopted": "已添加到供应商「{{vendor}}」并启用，可在 API 配置中调整参数",
   "adopted_no_key": "已添加并启用，但供应商「{{vendor}}」尚未配置 API Key，补齐密钥后模型才可用",

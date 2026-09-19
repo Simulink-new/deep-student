@@ -7,6 +7,7 @@
   "never_run": "Never checked yet",
   "no_new_models": "No new models found",
   "use": "Use",
+  "choose_vendor": "Add to provider \"{{vendor}}\"",
   "dismiss": "Dismiss",
   "adopted": "Added to provider \"{{vendor}}\" and enabled — adjust its parameters under API Settings anytime",
   "adopted_no_key": "Added and enabled, but provider \"{{vendor}}\" has no API Key yet — the model stays unusable until you add one",
